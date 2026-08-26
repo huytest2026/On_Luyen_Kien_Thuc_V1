@@ -390,7 +390,7 @@ window.closeDictionaryModal = function() {
 // Progressive loading + stale-while-revalidate
 // ==========================================
 const DICT_V11_CACHE_VERSION = 'v14-offline-10k-hybrid';
-const DICT_V11_DB_NAME = 'EnglishDictionaryCacheV14';
+const DICT_V11_DB_NAME = 'EnglishDictionaryCacheV15';
 const DICT_V11_STORE = 'entries';
 const DICT_V11_TTL = 1000 * 60 * 60 * 24 * 30; // 30 ngày
 let dictV11DBPromise = null;
@@ -406,7 +406,7 @@ function dictV11NormalizeWord(value) {
 // ==========================================
 function getOffline10KEntry(word) {
     const key = dictV11NormalizeWord(word);
-    const db = window.OFFLINE_DICTIONARY_10K;
+    const db = window.OFFLINE_DICTIONARY_50K;
     if (!db || !key) return null;
     return db[key] || null;
 }
@@ -906,7 +906,7 @@ window.lookupWord = async function(requestedWord = '') {
         resultBox.innerHTML = buildOffline10KHTML(word, offlineEntry);
         const offlineMeta = document.createElement('div');
         offlineMeta.className = 'dict-v11-meta';
-        offlineMeta.innerHTML = `<span class="cache">⚡ Offline 10K · ${window.OFFLINE_DICTIONARY_10K_COUNT || 10000} từ</span>`;
+        offlineMeta.innerHTML = `<span class="cache">⚡ Offline 50K · ${window.OFFLINE_DICTIONARY_50K_COUNT || 50000} từ</span>`;
         resultBox.prepend(offlineMeta);
 
         // Lấy cache giàu dữ liệu ở nền, nhưng chỉ chấp nhận cache V14 đã được
@@ -922,7 +922,7 @@ window.lookupWord = async function(requestedWord = '') {
                 resultBox.innerHTML = richHtml;
                 const meta = document.createElement('div');
                 meta.className = 'dict-v11-meta';
-                meta.innerHTML = `<span class="cache">⚡ Offline 10K + Cache ${cachedRich.source === 'indexeddb' ? 'IndexedDB' : 'trình duyệt'}</span>`;
+                meta.innerHTML = `<span class="cache">⚡ Offline 50K + Cache ${cachedRich.source === 'indexeddb' ? 'IndexedDB' : 'trình duyệt'}</span>`;
                 resultBox.prepend(meta);
             }
         } catch (e) {}
@@ -975,7 +975,7 @@ window.lookupWord = async function(requestedWord = '') {
         // Fallback chỉ khi Dictionary API không trả lời. Nếu đã có offline preview, giữ nguyên và báo trạng thái.
         if (offlineEntry) {
             const slot = resultBox.querySelector('#dict-offline-online-slot');
-            if (slot) slot.innerHTML = '<div class="dict-v11-meta">📴 Không có Internet: đang dùng dữ liệu offline 10K (IPA + phát âm).</div>';
+            if (slot) slot.innerHTML = '<div class="dict-v11-meta">📴 Không có Internet: đang dùng dữ liệu offline 50K (IPA + phát âm).</div>';
             return;
         }
         try {
