@@ -98,6 +98,19 @@
             position: relative;
         }
 
+        /* V7: giao diện responsive + giảm repaint khi cuộn */
+        *, *::before, *::after { box-sizing: border-box; }
+        button, select, input { font: inherit; }
+        button { touch-action: manipulation; }
+        .quiz-card, .option-box { contain: layout paint; }
+        @media (max-width: 700px) {
+            body { margin: 8px; padding: 0; font-size: 1em; }
+            .container { padding: 16px; border-radius: 10px; max-width: 100%; }
+            .quiz-sticky-header { margin: -16px -16px 14px; padding: 10px; gap: 8px; flex-wrap: wrap; }
+            #header-tools-group { flex-wrap: wrap; }
+            .option-box { padding: 12px 14px; }
+        }
+
         /* Khung thông tin chỉ hiển thị khi in */
         .print-only-header { display: none; }
 
@@ -382,7 +395,7 @@
         if (display) {
             try {
                 let expression = display.value.replace(/×/g, '*').replace(/÷/g, '/');
-                let result = new Function(`return ${expression}`)();
+                let result = safeEvaluate(expression);
                 if (result !== undefined && !isNaN(result)) {
                     display.value = Number(result.toFixed(6));
                 } else { display.value = 'Lỗi'; }
@@ -446,7 +459,7 @@
                     'Đổi đơn vị': 6,
                     'Phân số': 4,
                     'Phép tính số thập phân': 4,
-                    'So sánh phân số': 6
+                    'So sánh phân số': 5
                 };
 
                 let selectedQuestions = [];
