@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bài Kiểm Tra Toán Anh</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #e8eded; font-size: 1.05em; }
+        .container { background-color: #bbe9f0; padding: 25px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); max-width: 650px; margin: auto; position: relative; }
+        h1 { font-size: 1.6em; }
+        h3 { font-size: 1.3em; }
+        label { font-size: 1.05em; font-weight: bold; color: #333; }
+        .quiz-card { background: #ffffff; border: 2px solid #540606; border-radius: 12px; padding: 22px; margin-bottom: 22px; font-size: 1.15em; }
+        .option-box { background: #f8f9fa; border: 1px solid #540606; border-radius: 8px; padding: 14px 18px; margin: 10px 0; cursor: pointer; font-size: 1.1em; font-weight: 600; color: #111; }
+        #topic-container { margin: 10px 0; padding: 14px; border: 1px solid #ddd; max-height: 180px; overflow-y: auto; background: #fff; border-radius: 8px; font-size: 1.05em; }
+        
+        /* Thanh trạng thái cố định khi cuộn */
+        .quiz-sticky-header {
+            position: sticky;
+            top: 0;
+            background-color: #bbe9f0;
+            padding: 14px 18px;
+            margin: -25px -25px 20px -25px;
+            border-bottom: 2px solid #540606;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: bold;
+            font-size: 1.1em;
+            z-index: 100;
+            border-top-left-radius: 10px;
+            border-top-right-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+
+        /* --- CSS MÁY TÍNH KHOA HỌC NÂNG CAO --- */
+        #calc-modal {
+            display: none;
+            position: fixed;
+            top: 120px; right: 50px;
+            width: 250px !important;
+            height: auto !important;
+            min-height: unset !important;
+            max-height: unset !important;
+            background: #222 !important;
+            padding: 10px !important;
+            border-radius: 8px !important;
+            z-index: 9999 !important;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.4) !important;
+            flex-direction: column !important;
+            user-select: none !important;
+            overflow: hidden !important;
+        }
+
+        #calc-modal * { box-sizing: border-box !important; }
+
+        #calc-header {
+            display: flex !important;
+            justify-content: space-between !important;
+            align-items: center !important;
+            margin-bottom: 8px !important;
+            cursor: move !important;
+            background: #333 !important;
+            padding: 4px 8px !important;
+            border-radius: 4px !important;
+        }
+
+        #calc-display {
+            width: 100% !important;
+            height: 35px !important;
+            background: #fff !important;
+            text-align: right !important;
+            font-size: 1.2em !important;
+            padding: 4px 8px !important;
+            margin-bottom: 8px !important;
+            border-radius: 4px !important;
+            border: 1px solid #540606 !important;
+        }
+
+        /* Modal chung (Tra từ & Động từ bất quy tắc) */
+        #dict-modal, #irregular-verbs-modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .dict-content {
+            background: #fff;
+            padding: 25px;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 650px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            border: 2px solid #540606;
+            position: relative;
+        }
+
+        /* Khung thông tin chỉ hiển thị khi in */
+        .print-only-header { display: none; }
+
+        /* --- CẤU HÌNH ĐỊNH DẠNG KHI IN / XUẤT PDF --- */
+        @media print {
+            * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+
+            #start-screen, #calc-modal, #dict-modal, #irregular-verbs-modal, 
+            .quiz-sticky-header, #submit-btn, #btn-print-pdf,
+            div[style*="border: 2px solid red"], div[style*="border:2px solid red"] {
+                display: none !important;
+            }
+
+            #quiz-screen { display: block !important; }
+            .print-only-header { display: block !important; }
+
+            body {
+                background-color: #ffffff !important;
+                color: #000000 !important;
+                margin: 0 !important;
+                padding: 10px !important;
+            }
+
+            .container {
+                background-color: transparent !important;
+                box-shadow: none !important;
+                max-width: 100% !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+
+            .quiz-card {
+                border: 1.5px solid #540606 !important;
+                box-shadow: none !important;
+                page-break-inside: avoid;
+                break-inside: avoid;
+                margin-bottom: 20px !important;
+                padding: 15px !important;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container" id="start-screen">
+    <!-- DÒNG TRÊN: TIÊU ĐỀ Ở GIỮA VÀ NÚT TỐI Ở BÊN PHẢI -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <div style="width: 80px;"></div>
+        <h1 style="color: #540606; margin: 0; font-size: 1.5em; text-align: center; flex: 1;">Bài Kiểm Tra Toán Anh</h1>
+        <button type="button" id="dark-mode-toggle" style="background: #e0a800; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 0.9em; white-space: nowrap;">🌙 Tối</button>
+    </div>
+
+    <!-- DÒNG DƯỚI: CHỈ CÓ 2 NÚT MÁY TÍNH VÀ TRA TỪ -->
+    <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+        <button type="button" onclick="window.openCalculatorModal()" style="flex: 1; background: #fd7e14; color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 0.95em; white-space: nowrap;">🧮 Máy tính</button>
+        <button type="button" onclick="window.openDictionaryModal()" style="flex: 1; background: #17a2b8; color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 0.95em; white-space: nowrap;">📖 Tra từ</button>
+    </div>
+    
+    <label for="student-code">Mã học sinh:</label>
+    <input type="text" id="student-code" value="Huy" placeholder="Nhập MÃ HỌC SINH..." style="width: 100%; padding: 14px; margin: 8px 0 15px 0; box-sizing: border-box; font-size: 1.1em; border: 1px solid #540606; border-radius: 8px;">
+    
+    <button type="button" id="load-data-btn" onclick="window.loadData()" style="width: 100%; padding: 14px; background: #7e38e0; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 1.1em; margin-bottom: 15px;">Xác nhận Mã & Tải đề</button>
+
+    <label style="display:block; margin-top:5px;">Chọn môn học:</label>
+    <select id="subject-select" onchange="window.handleSubjectChange()" style="width: 100%; padding: 14px; margin: 8px 0 15px 0; font-size: 1.1em; border: 1px solid #540606; border-radius: 8px;">
+        <option value="">-- Chọn môn --</option>
+    </select>
+
+    <div id="level-container" style="display: none;">
+        <label style="display:block; margin-top:5px;">Chọn cấp độ:</label>
+        <select id="level-select" style="width: 100%; padding: 14px; margin: 8px 0 15px 0; font-size: 1.1em; border: 1px solid #540606; border-radius: 8px;">
+            <option value="1">Level 1</option>
+            <option value="2">Level 2</option>
+            <option value="3">Level 3</option>
+        </select>
+    </div>
+
+    <!-- KHUNG CHỌN MÃ ĐỀ -->
+    <div style="margin-top: 15px; margin-bottom: 15px; background: #fff; padding: 15px; border-radius: 8px; border: 1px solid #540606;">
+        <label style="cursor: pointer; font-weight: bold; color: #540606; display: flex; align-items: center; gap: 10px; font-size: 1.1em;">
+            <input type="checkbox" id="toggle-made" onchange="window.toggleMadeMode()" style="width: 20px; height: 20px; cursor: pointer;"> 
+            Làm bài theo Mã đề (MADE) riêng
+        </label>
+
+        <div id="made-container" style="display: none; margin-top: 12px;">
+            <select id="made-select" onchange="window.handleMadeChange()" style="width: 100%; padding: 14px; margin: 5px 0; font-size: 1.1em; border: 1px solid #540606; border-radius: 8px;">
+                <option value="">-- Chọn mã đề --</option>
+            </select>
+            <div id="made-passage-preview"></div>
+        </div>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+        <label style="margin: 0; font-size: 1.1em;">Chọn chủ đề:</label>
+        <button type="button" onclick="window.toggleAllTopics()" style="padding: 6px 12px; font-size: 0.95em; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">Chọn/Bỏ chọn tất cả</button>
+    </div>
+    <div id="topic-container">Chưa tải dữ liệu...</div>
+
+    <!-- NÚT TẠO ĐỀ TỔNG HỢP MÔN TOÁN -->
+    <button type="button" id="btn-tao-de-toan" style="width: 100%; padding: 12px; background-color: #ffc107; color: #000; border: none; border-radius: 8px; font-weight: bold; font-size: 1em; margin-top: 10px; margin-bottom: 10px; cursor: pointer;">
+        🎯 Tạo đề tổng hợp (30 phút - 21 câu)
+    </button>
+
+    <button type="button" id="start-btn" onclick="window.startQuizWithToolCheck()" style="width: 100%; padding: 16px; background: #007bff; color: white; border: none; cursor: pointer; margin-top: 5px; border-radius: 8px; font-weight: bold; font-size: 1.2em;">Bắt Đầu Làm Bài</button>
+
+    <div id="leaderboard" style="margin-top: 25px; padding: 18px; border: 2px solid red; border-radius: 10px; background: #fff;">
+        <h3 style="color: red; margin-top: 0; font-size: 1.3em;">🏆 Bảng xếp hạng:</h3>
+        <div id="ranking-list"><p style="color: #666; font-size: 1.05em;">Chưa có dữ liệu xếp hạng.</p></div>
+    </div>
+</div>
+
+<div class="container" id="quiz-screen" style="display:none;">
+    
+    <div id="print-only-header" class="print-only-header"></div>
+
+    <div class="quiz-sticky-header">
+        <div>⏱️ <span id="timer-display" style="color: red; font-size: 1.15em;">--:--</span></div>
+        <div id="header-tools-group" style="display: flex; gap: 8px; align-items: center;">
+            <button type="button" id="btn-calc" onclick="window.openCalculatorModal()" style="display: none; background: #fd7e14; color: white; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 0.95em; font-weight: bold;">🧮 Calculator</button>
+            <button type="button" id="btn-dict" onclick="window.openDictionaryModal()" style="display: none; background: #17a2b8; color: white; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 0.95em; font-weight: bold;">📖 Tra từ</button>
+            <button type="button" id="btn-verbs" onclick="window.openIrregularVerbsModal()" style="display: none; background: #e0a800; color: white; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 0.95em; font-weight: bold;">📚 ĐT Bất Quy Tắc</button>
+            <button type="button" id="btn-print-pdf" onclick="window.printQuiz()" style="background: #28a745; color: white; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 0.95em; font-weight: bold;">🖨️ In / PDF</button>
+            <button type="button" onclick="window.backToHome()" style="background: #6c757d; color: white; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 0.95em; font-weight: bold;">🏠 Trang chủ</button>
+        </div>
+        <div>Đúng: <span id="correct-count-display" style="color: green;">0</span> | Sai: <span id="wrong-count-display" style="color: red;">0</span></div>
+    </div>
+    
+    <div id="quiz" style="margin-top: 15px;"></div>
+    <button type="button" id="submit-btn" onclick="window.submitQuiz()" style="width: 100%; padding: 16px; background: #28a745; color: white; border: none; cursor: pointer; border-radius: 8px; font-weight: bold; font-size: 1.2em; margin-top: 15px;">Nộp bài</button>
+</div>
+
+<!-- MODAL MÁY TÍNH KHOA HỌC -->
+<div id="calc-modal">
+    <div id="calc-header">
+        <span style="color: #ff9800; font-weight: bold; font-size: 13px;">🧮 Máy tính khoa học</span>
+        <button type="button" onclick="window.closeCalculatorModal()" style="background: #d32f2f; color: white; border: none; border-radius: 3px; cursor: pointer; padding: 1px 5px; font-size: 12px;">✕</button>
+    </div>
+    <input type="text" id="calc-display" readonly value="0">
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;">
+        <button type="button" class="calc-btn" onclick="window.calcInput('Math.sqrt(')" style="background: #444; color:#ff9800; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:12px;">√</button>
+        <button type="button" class="calc-btn" onclick="window.calcInput('**2')" style="background: #444; color:#ff9800; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:12px;">x²</button>
+        <button type="button" class="calc-btn" onclick="window.calcInput('**')" style="background: #444; color:#ff9800; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:12px;">xʸ</button>
+        <button type="button" class="calc-btn" onclick="window.calcClear()" style="background: #d32f2f; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">C</button>
+        <button type="button" class="calc-btn" onclick="window.calcInput('Math.sin(')" style="background: #444; color:#00bcd4; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:11px;">sin</button>
+        <button type="button" class="calc-btn" onclick="window.calcInput('Math.cos(')" style="background: #444; color:#00bcd4; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:11px;">cos</button>
+        <button type="button" class="calc-btn" onclick="window.calcInput('Math.tan(')" style="background: #444; color:#00bcd4; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:11px;">tan</button>
+        <button type="button" class="calc-btn" onclick="window.calcInput('/')" style="background: #ff9800; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">÷</button>
+        <button type="button" class="calc-btn" onclick="window.calcInput('7')" style="background: #666; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">7</button>
+        <button type="button" class="calc-btn" onclick="window.calcInput('8')" style="background: #666; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">8</button>
+        <button type="button" class="calc-btn" onclick="window.calcInput('9')" style="background: #666; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">9</button>
+        <button type="button" class="calc-btn" onclick="window.calcInput('*')" style="background: #ff9800; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">×</button>
+        <button type="button" class="calc-btn" onclick="window.calcInput('4')" style="background: #666; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">4</button>
+        <button type="button" class="calc-btn" onclick="window.calcInput('5')" style="background: #666; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">5</button>
+        <button type="button" class="calc-btn" onclick="window.calcInput('6')" style="background: #666; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">6</button>
+        <button type="button" class="calc-btn" onclick="window.calcInput('-')" style="background: #ff9800; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">-</button>
+        <button type="button" class="calc-btn" onclick="window.calcInput('1')" style="background: #666; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">1</button>
+        <button type="button" class="calc-btn" onclick="window.calcInput('2')" style="background: #666; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">2</button>
+        <button type="button" class="calc-btn" onclick="window.calcInput('3')" style="background: #666; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">3</button>
+        <button type="button" class="calc-btn" onclick="window.calcInput('+')" style="background: #ff9800; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">+</button>
+        <button type="button" class="calc-btn" onclick="window.calcInput('0')" style="background: #666; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">0</button>
+        <button type="button" class="calc-btn" onclick="window.calcInput('.')" style="background: #666; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">.</button>
+        <button type="button" class="calc-btn" onclick="window.calcInput('(')" style="background: #555; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">(</button>
+        <button type="button" class="calc-btn" onclick="window.calcInput(')')" style="background: #555; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">)</button>
+        <button type="button" class="calc-btn" onclick="window.calcCalculate()" style="background: #4caf50; color:white; padding: 6px; border:none; border-radius:3px; grid-column: span 4; font-weight:bold; cursor:pointer; font-size:14px;">=</button>
+    </div>
+</div>
+
+<!-- MODAL TRA TỪ ĐIỂN -->
+<div id="dict-modal">
+    <div class="dict-content">
+        <h3 style="color: #540606; margin-top: 0; display: flex; justify-content: space-between; align-items: center;">
+            📖 Tra từ điển tiếng Anh
+            <button type="button" onclick="window.closeDictionaryModal()" style="background: none; border: none; font-size: 1.2em; cursor: pointer; font-weight: bold;">✕</button>
+        </h3>
+        <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+            <input type="text" id="dict-input" placeholder="Nhập từ tiếng Anh cần tra..." onkeydown="if(event.key==='Enter') window.lookupWord()" style="margin: 0; flex: 1; padding: 10px; border: 1px solid #540606; border-radius: 6px;">
+            <button type="button" onclick="window.lookupWord()" style="background: #007bff; color: white; border: none; padding: 0 16px; border-radius: 8px; font-weight: bold; cursor: pointer;">Tra</button>
+        </div>
+        <div id="dict-result" style="max-height: 250px; overflow-y: auto; background: #f8f9fa; padding: 12px; border-radius: 8px; border: 1px solid #ddd; font-size: 1.05em;">
+            Nhập từ và bấm "Tra" để xem nghĩa, phiên âm...
+        </div>
+    </div>
+</div>
+
+<!-- MODAL BẢNG ĐỘNG TỪ BẤT QUY TẮC -->
+<div id="irregular-verbs-modal">
+    <div class="dict-content" style="max-width: 700px;">
+        <h3 style="color: #540606; margin-top: 0; display: flex; justify-content: space-between; align-items: center;">
+            📚 Bảng Động Từ Bất Quy Tắc Tiếng Anh
+            <button type="button" onclick="window.closeIrregularVerbsModal()" style="background: none; border: none; font-size: 1.2em; cursor: pointer; font-weight: bold;">✕</button>
+        </h3>
+        <div style="margin-bottom: 12px;">
+            <input type="text" id="iv-search-input" placeholder="Nhập từ cần tìm (V1, V2, V3 hoặc nghĩa tiếng Việt)..." oninput="window.filterIrregularVerbs()" style="margin: 0; width: 100%; padding: 12px; border: 1px solid #540606; border-radius: 8px; box-sizing: border-box;">
+        </div>
+        <div id="iv-result-list" style="max-height: 350px; overflow-y: auto; background: #f8f9fa; padding: 10px; border-radius: 8px; border: 1px solid #ddd;"></div>
+    </div>
+</div>
+
+<script src="script.js"></script>
+<script>
+    window.printQuiz = function() {
+        const studentCode = document.getElementById('student-code')?.value || 'Chưa nhập';
+        const subjectSelect = document.getElementById('subject-select');
+        let subjectText = (subjectSelect && subjectSelect.selectedIndex >= 0 && subjectSelect.value) 
+                            ? subjectSelect.options[subjectSelect.selectedIndex].text 
+                            : 'MÔN TOÁN';
+
+        const quizContent = document.getElementById('quiz-screen')?.innerText || '';
+        if (quizContent.includes('ĐỀ TỔNG HỢP TOÁN') || document.querySelector('#quiz-screen')?.dataset?.isDeTongHop === 'true') {
+            subjectText = 'TỔNG HỢP TOÁN (21 CÂU)';
+        }
+
+        const printHeader = document.getElementById('print-only-header');
+        if (printHeader) {
+            printHeader.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #540606; padding-bottom: 10px; margin-bottom: 20px;">
+                    <div>
+                        <h2 style="margin: 0; color: #540606;">BÀI KIỂM TRA MÔN: ${subjectText.toUpperCase()}</h2>
+                        <p style="margin: 5px 0 0 0; font-weight: bold; font-size: 1.1em;">Học sinh: ${studentCode}</p>
+                    </div>
+                    <div style="text-align: right;">
+                        <p style="margin: 0; font-size: 0.95em; color: #333;">Ngày xuất bài: ${new Date().toLocaleDateString('vi-VN')}</p>
+                    </div>
+                </div>
+            `;
+        }
+        window.print();
+    };
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const calcModal = document.getElementById('calc-modal');
+        const calcHeader = document.getElementById('calc-header');
+        let isDragging = false;
+        let offsetX, offsetY;
+
+        if (calcHeader && calcModal) {
+            calcHeader.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                offsetX = e.clientX - calcModal.offsetLeft;
+                offsetY = e.clientY - calcModal.offsetTop;
+                calcModal.style.right = 'auto'; 
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+                calcModal.style.left = (e.clientX - offsetX) + 'px';
+                calcModal.style.top = (e.clientY - offsetY) + 'px';
+            });
+
+            document.addEventListener('mouseup', () => { isDragging = false; });
+        }
+    });
+
+    window.openCalculatorModal = function() {
+        const modal = document.getElementById('calc-modal');
+        if (modal) modal.style.display = 'flex';
+    };
+
+    window.closeCalculatorModal = function() {
+        const modal = document.getElementById('calc-modal');
+        if (modal) modal.style.display = 'none';
+    };
+
+    window.calcInput = function(val) {
+        const display = document.getElementById('calc-display');
+        if (display) {
+            if (display.value === '0' || display.value === 'Lỗi') display.value = val;
+            else display.value += val;
+        }
+    };
+
+    window.calcClear = function() {
+        const display = document.getElementById('calc-display');
+        if (display) display.value = '0';
+    };
+
+    window.calcCalculate = function() {
+        const display = document.getElementById('calc-display');
+        if (display) {
+            try {
+                let expression = display.value.replace(/×/g, '*').replace(/÷/g, '/');
+                let result = new Function(`return ${expression}`)();
+                if (result !== undefined && !isNaN(result)) {
+                    display.value = Number(result.toFixed(6));
+                } else { display.value = 'Lỗi'; }
+            } catch (e) { display.value = 'Lỗi'; }
+        }
+    };
+
+    window.startQuizWithToolCheck = function() {
+        const quizScreen = document.getElementById('quiz-screen');
+        if (quizScreen) quizScreen.dataset.isDeTongHop = 'false';
+
+        const subjectSelect = document.getElementById('subject-select');
+        const selectedSubject = subjectSelect ? subjectSelect.value.toLowerCase() : '';
+        
+        const btnCalc = document.getElementById('btn-calc');
+        const btnDict = document.getElementById('btn-dict');
+        const btnVerbs = document.getElementById('btn-verbs');
+
+        const isMath = selectedSubject.includes('toán') || selectedSubject.includes('math');
+        const isEnglish = selectedSubject.includes('anh') || selectedSubject.includes('english');
+
+        if (isMath) {
+            if (btnCalc) btnCalc.style.display = 'inline-block';
+            if (btnDict) btnDict.style.display = 'none';
+            if (btnVerbs) btnVerbs.style.display = 'none';
+        } else if (isEnglish) {
+            if (btnCalc) btnCalc.style.display = 'none';
+            if (btnDict) btnDict.style.display = 'inline-block';
+            if (btnVerbs) btnVerbs.style.display = 'inline-block';
+        } else {
+            if (btnCalc) btnCalc.style.display = 'none';
+            if (btnDict) btnDict.style.display = 'none';
+            if (btnVerbs) btnVerbs.style.display = 'none';
+        }
+
+        if (typeof window.startQuiz === 'function') {
+            window.startQuiz();
+        }
+    };
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const btnTaoDeToan = document.getElementById('btn-tao-de-toan');
+        
+        if (btnTaoDeToan) {
+            btnTaoDeToan.addEventListener('click', function() {
+                const selectMonHoc = document.getElementById('subject-select');
+                if (!selectMonHoc || (!selectMonHoc.value.toLowerCase().includes('toán') && !selectMonHoc.value.toLowerCase().includes('toan'))) {
+                    alert("Vui lòng chọn môn Toán ở mục 'Chọn môn học' trước khi bấm tạo đề Toán!");
+                    return;
+                }
+
+                const poolData = (window.AppState && window.AppState.allQuizData) || window.allQuizData || [];
+
+                if (!poolData || poolData.length === 0) {
+                    alert("Dữ liệu câu hỏi chưa được tải. Vui lòng bấm 'Xác nhận Mã & Tải đề' trước!");
+                    return;
+                }
+
+                let cauHinh = {
+                    'Hình học': 2,
+                    'Đổi đơn vị': 6,
+                    'Phân số': 4,
+                    'Phép tính số thập phân': 4,
+                    'So sánh phân số': 6
+                };
+
+                let selectedQuestions = [];
+
+                for (let chuDe in cauHinh) {
+                    let countNeeded = cauHinh[chuDe];
+                    let pool = poolData.filter(q => 
+                        q.chuDe && q.chuDe.trim().toLowerCase() === chuDe.toLowerCase()
+                    );
+
+                    pool = (typeof shuffleArray === 'function') ? shuffleArray(pool) : pool.sort(() => Math.random() - 0.5);
+                    let picked = pool.slice(0, countNeeded);
+                    selectedQuestions = selectedQuestions.concat(picked);
+                }
+
+                if (selectedQuestions.length === 0) {
+                    alert("Không tìm thấy dữ liệu câu hỏi phù hợp cho các chủ đề môn Toán!");
+                    return;
+                }
+
+                selectedQuestions = (typeof shuffleArray === 'function') ? shuffleArray(selectedQuestions) : selectedQuestions.sort(() => Math.random() - 0.5);
+
+                const btnCalc = document.getElementById('btn-calc');
+                const btnDict = document.getElementById('btn-dict');
+                const btnVerbs = document.getElementById('btn-verbs');
+                
+                if (btnCalc) btnCalc.style.setProperty('display', 'inline-block', 'important');
+                if (btnDict) btnDict.style.setProperty('display', 'none', 'important');
+                if (btnVerbs) btnVerbs.style.setProperty('display', 'none', 'important');
+
+                if (window.AppState) {
+                    AppState.currentQuizData = selectedQuestions.map(item => {
+                        let correctKeys = (typeof getCorrectKeys === 'function') ? getCorrectKeys(item) : [];
+                        let validKeys = ['a', 'b', 'c', 'd'].filter(k => item[k] && item[k] !== '');
+                        validKeys = (typeof shuffleArray === 'function') ? shuffleArray(validKeys) : validKeys;
+                        return { ...item, _shuffledKeys: validKeys, _correctKeys: correctKeys };
+                    });
+
+                    AppState.correctCount = 0;
+                    AppState.wrongCount = 0;
+
+                    const startScreen = document.getElementById('start-screen');
+                    if (startScreen) startScreen.style.display = 'none';
+
+                    const quizScreen = document.getElementById('quiz-screen');
+                    if (quizScreen) {
+                        quizScreen.style.display = 'block';
+                        quizScreen.dataset.isDeTongHop = 'true';
+                    }
+
+                    if (typeof handleBeforeUnload !== 'undefined') {
+                        window.addEventListener('beforeunload', handleBeforeUnload);
+                    }
+
+                    if (typeof updateScoreDisplay === 'function') updateScoreDisplay();
+                    if (typeof window.renderQuiz === 'function') window.renderQuiz();
+                    if (typeof window.startTimerTotal === 'function') window.startTimerTotal(30 * 60);
+                } else {
+                    alert("Đã tạo đề nhưng có lỗi khởi tạo giao diện quiz.");
+                }
+            });
+        }
+    });
+</script>
+</body>
+</html>
