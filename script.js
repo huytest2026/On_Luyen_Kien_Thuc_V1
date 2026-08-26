@@ -1,3 +1,5 @@
+
+
 const API_URL = "https://script.google.com/macros/s/AKfycbxByXvzJFoK6N0jToFqXj1pEMBnGkMyoa7J5r7vEScJTr-ZSOfSw8Wdv8pPg5EyBg/exec";
 
 let AppState = {
@@ -387,7 +389,7 @@ window.closeDictionaryModal = function() {
 // Memory -> IndexedDB -> localStorage fallback
 // Progressive loading + stale-while-revalidate
 // ==========================================
-const DICT_V11_CACHE_VERSION = 'v11';
+const DICT_V11_CACHE_VERSION = 'v12-ipa';
 const DICT_V11_DB_NAME = 'EnglishDictionaryCacheV11';
 const DICT_V11_STORE = 'entries';
 const DICT_V11_TTL = 1000 * 60 * 60 * 24 * 30; // 30 ngày
@@ -674,9 +676,12 @@ async function enrichFamilyItem(item) {
             const entries = Array.isArray(data) ? data : [];
             const meanings = entries.flatMap(e => Array.isArray(e.meanings) ? e.meanings : []);
             const first = meanings.find(m => m && m.definitions && m.definitions.length);
+            const phonetics = entries.flatMap(e => Array.isArray(e.phonetics) ? e.phonetics : []);
+            const ipa = entries.map(e => e.phonetic).find(Boolean) || phonetics.map(p => p.text).find(Boolean) || '';
+            const audio = phonetics.map(p => p.audio).find(Boolean) || '';
             const pos = item.pos || first?.partOfSpeech || '';
             const def = first?.definitions?.[0]?.definition || '';
-            const result = { ...item, pos, meaning: item.meaning || '', definition: def };
+            const result = { ...item, pos, meaning: item.meaning || '', definition: def, ipa, audio };
             AppState.dictionaryCache.set(cacheKey, {__familyMeta: result});
             return result;
         }
@@ -717,9 +722,11 @@ async function renderWordFamily(word, fallbackHtml = '') {
         html += `<div class="dict-family-item">
             <div>
                 <span class="dict-family-word">${escapeHTML(wordText)}</span>
-                <button class="dict-family-speak" title="Nghe phát âm mẫu" onclick="speakWord('${escapeHTML(wordText)}')">🔊</button>
+                ${item.ipa ? `<span class="dict-family-ipa">${escapeHTML(item.ipa)}</span>` : ''}
+                ${item.audio ? `<button class="dict-family-speak" title="Nghe audio phát âm" onclick="window.playDictionaryAudio('${escapeHTML(item.audio)}')">🔊</button>` : `<button class="dict-family-speak" title="Nghe phát âm mẫu" onclick="speakWord('${escapeHTML(wordText)}')">🔊</button>`}
                 <button class="dict-family-check" title="Kiểm tra phát âm" onclick="startPronunciationCheck('${escapeHTML(wordText)}')">🎙️</button>
             </div>
+            ${item.ipa ? `<div class="dict-family-ipa-label">🔤 IPA: <b>${escapeHTML(item.ipa)}</b></div>` : ''}
             <div class="dict-family-pos">${escapeHTML(posText)}</div>
             ${meaning ? `<div class="dict-family-meaning">🇻🇳 ${escapeHTML(meaning)}</div>` : ''}
             ${definition ? `<div class="dict-family-def">EN: ${escapeHTML(definition)}</div>` : ''}
@@ -737,15 +744,29 @@ async function renderWordFamily(word, fallbackHtml = '') {
 function buildDictionaryBaseHTML(entries, word) {
     const mainEntry = entries[0] || {};
     const mainWord = mainEntry.word || word;
-    const phonetic = entries.map(e => e.phonetic).find(Boolean)
-        || entries.flatMap(e => e.phonetics || []).map(p => p.text).find(Boolean) || '';
-    const audioUrl = entries.flatMap(e => e.phonetics || []).map(p => p.audio).find(Boolean) || '';
+    const phonetics = entries.flatMap(e => Array.isArray(e.phonetics) ? e.phonetics : []);
+    const ipaList = [];
+    entries.forEach(e => { if (e.phonetic) ipaList.push(e.phonetic); });
+    phonetics.forEach(p => { if (p.text) ipaList.push(p.text); });
+    const uniqueIPA = [...new Set(ipaList.filter(Boolean))];
+    const audioUrl = phonetics.map(p => p.audio).find(Boolean) || '';
 
     let html = `<div class="dict-word-head">
         <b style="font-size:1.45em;color:#540606;">${escapeHTML(mainWord)}</b>
-        ${phonetic ? `<span style="color:#d9534f;font-family:monospace;font-style:italic;">${escapeHTML(phonetic)}</span>` : ''}
-        ${audioUrl ? `<button class="tool-small-btn" style="background:#ffc107;" onclick="window.playDictionaryAudio('${escapeHTML(audioUrl)}')">🔊 Audio</button>` : ''}
+        ${audioUrl ? `<button class="tool-small-btn" style="background:#ffc107;" onclick="window.playDictionaryAudio('${escapeHTML(audioUrl)}')">🔊 Audio chuẩn</button>` : ''}
         ${speechButtonHTML(mainWord)}
+    </div>`;
+
+    html += `<div class="dict-pronunciation-card">
+        <div class="dict-pronunciation-title">🔤 Phiên âm IPA</div>`;
+    if (uniqueIPA.length) {
+        uniqueIPA.forEach((ipa, i) => {
+            html += `<div class="dict-ipa-row"><span class="dict-ipa-label">${uniqueIPA.length > 1 ? 'Phiên âm ' + (i + 1) : 'IPA'}</span><code>${escapeHTML(ipa)}</code></div>`;
+        });
+    } else {
+        html += '<div class="dict-ipa-missing">Chưa có dữ liệu IPA từ nguồn từ điển.</div>';
+    }
+    html += `<div class="dict-ipa-note">💡 IPA là phiên âm quốc tế; nút 🔊 dùng audio chuẩn nếu nguồn cung cấp, nếu không sẽ dùng giọng đọc của trình duyệt.</div>
     </div>
     <div id="dict-translation-slot" class="dict-v11-loading">⏳ Đang lấy nghĩa tiếng Việt...</div>
     <div id="dict-main-definitions">`;
@@ -762,7 +783,6 @@ function buildDictionaryBaseHTML(entries, word) {
                 conjunction:'Liên từ (conjunction)', interjection:'Thán từ (interjection)',
                 determiner:'Từ hạn định (determiner)'
             }[pos] || pos;
-
             html += `<div class="dict-pos-block">
                 <div style="font-weight:800;color:#007bff;font-size:1.08em;">${escapeHTML(posLabel)}</div>`;
             const defs = Array.isArray(meaning.definitions) ? meaning.definitions : [];
@@ -776,10 +796,7 @@ function buildDictionaryBaseHTML(entries, word) {
             html += `</div>`;
         });
     });
-
-    if (allSynonyms.size) {
-        html += `<div class="dict-synonyms"><b>🔗 Từ đồng nghĩa:</b> ${Array.from(allSynonyms).slice(0, 40).map(escapeHTML).join(', ')}</div>`;
-    }
+    if (allSynonyms.size) html += `<div class="dict-synonyms"><b>🔗 Từ đồng nghĩa:</b> ${Array.from(allSynonyms).slice(0, 40).map(escapeHTML).join(', ')}</div>`;
     if (!posCount) html += '<div>Không có dữ liệu từ loại chi tiết.</div>';
     html += `</div>
         <div id="dict-family-slot" class="dict-v11-loading">🌿 Đang tải họ từ...</div>
