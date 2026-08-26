@@ -1,4 +1,3 @@
-html:
 <!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -114,6 +113,22 @@ html:
 
         /* Khung thông tin chỉ hiển thị khi in */
         .print-only-header { display: none; }
+
+        /* V10: Kiểm tra phát âm bằng Web Speech API */
+        .pronunciation-tools { display:flex; flex-wrap:wrap; gap:7px; align-items:center; margin:8px 0 10px; }
+        .pronunciation-btn { border:none; border-radius:7px; padding:8px 12px; font-weight:700; cursor:pointer; touch-action:manipulation; }
+        .pronunciation-btn.listen { background:#ffc107; color:#111; }
+        .pronunciation-btn.check { background:#198754; color:#fff; }
+        .pronunciation-btn.stop { background:#dc3545; color:#fff; }
+        .pronunciation-feedback { margin-top:8px; padding:10px 12px; border-radius:8px; background:#eef7ff; border:1px solid #b9dcff; color:#234; }
+        .pronunciation-score { font-size:1.15em; font-weight:800; }
+        .pronunciation-good { color:#198754; }
+        .pronunciation-mid { color:#b7791f; }
+        .pronunciation-low { color:#dc3545; }
+        .pronunciation-transcript { margin-top:5px; font-family:monospace; }
+        .dict-family-check { border:none; background:#198754; color:#fff; border-radius:5px; cursor:pointer; padding:3px 6px; margin-left:3px; }
+        .iv-pron-btn { border:none; background:#198754; color:#fff; border-radius:5px; cursor:pointer; padding:3px 6px; margin-left:4px; }
+        @media (max-width:700px) { .pronunciation-btn { padding:7px 9px; } }
 
         /* V8 Dictionary / Irregular Verbs */
         .dict-rich-result { line-height: 1.55; }
@@ -319,6 +334,7 @@ html:
             <button type="button" onclick="window.lookupWord()" style="background: #007bff; color: white; border: none; padding: 0 16px; border-radius: 8px; font-weight: bold; cursor: pointer;">Tra</button>
         </div>
         <div style="font-size:.9em;color:#666;margin:-4px 0 10px 2px;">💡 Hỗ trợ nhiều từ loại: <b>danh từ (noun)</b>, <b>động từ (verb)</b>, <b>tính từ (adjective)</b>, <b>trạng từ (adverb)</b>...; hiển thị định nghĩa, ví dụ, từ đồng nghĩa và phát âm.</div>
+        <div style="font-size:.88em;color:#555;margin:-3px 0 10px 2px;">🎙️ <b>Kiểm tra phát âm:</b> bấm <b>🎙️ Kiểm tra</b>, cho phép micro rồi đọc đúng từ tiếng Anh. Hệ thống sẽ nhận giọng nói và chấm mức độ khớp với từ mẫu.</div>
         <div id="dict-result" class="dict-rich-result" style="max-height: 520px; overflow-y: auto; background: #f8f9fa; padding: 12px; border-radius: 8px; border: 1px solid #ddd; font-size: 1.05em;">
             Nhập từ và bấm "Tra" để xem đầy đủ nghĩa, từ loại, ví dụ...
         </div>
@@ -755,6 +771,166 @@ function speakWord(text) {
     }
 }
 
+// ==========================================
+// V10: KIỂM TRA PHÁT ÂM BẰNG MICROPHONE
+// ==========================================
+const PronunciationState = {
+    recognition: null,
+    target: '',
+    listening: false,
+    attempts: 0,
+    bestScore: 0
+};
+
+function normalizePronunciationText(text) {
+    return String(text || '')
+        .toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9'\s-]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function levenshteinDistance(a, b) {
+    a = String(a || ''); b = String(b || '');
+    const prev = new Array(b.length + 1);
+    const curr = new Array(b.length + 1);
+    for (let j = 0; j <= b.length; j++) prev[j] = j;
+    for (let i = 1; i <= a.length; i++) {
+        curr[0] = i;
+        for (let j = 1; j <= b.length; j++) {
+            const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+            curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+        }
+        for (let j = 0; j <= b.length; j++) prev[j] = curr[j];
+    }
+    return prev[b.length];
+}
+
+function calculatePronunciationScore(target, transcript) {
+    const t = normalizePronunciationText(target);
+    const r = normalizePronunciationText(transcript);
+    if (!t || !r) return 0;
+    if (t === r) return 100;
+
+    // Chấm cả chuỗi và từng từ, giúp xử lý trường hợp trình nhận diện thêm từ phụ.
+    const charScore = Math.max(0, 100 * (1 - levenshteinDistance(t, r) / Math.max(t.length, r.length)));
+    const tw = t.split(/\s+/);
+    const rw = r.split(/\s+/);
+    let matched = 0;
+    tw.forEach(word => {
+        if (rw.some(x => x === word || levenshteinDistance(word, x) <= Math.max(1, Math.floor(word.length * 0.2)))) matched++;
+    });
+    const wordScore = 100 * matched / tw.length;
+    return Math.round(Math.max(0, Math.min(100, charScore * 0.65 + wordScore * 0.35)));
+}
+
+function pronunciationFeedbackHTML(target, statusHtml) {
+    const id = 'pronunciation-feedback';
+    const existing = document.getElementById(id);
+    if (existing) {
+        existing.innerHTML = statusHtml;
+        return;
+    }
+    const resultBox = document.getElementById('dict-result');
+    if (!resultBox) return;
+    const panel = document.createElement('div');
+    panel.id = id;
+    panel.className = 'pronunciation-feedback';
+    panel.innerHTML = statusHtml;
+    resultBox.prepend(panel);
+}
+
+function pronunciationScoreClass(score) {
+    if (score >= 85) return 'pronunciation-good';
+    if (score >= 65) return 'pronunciation-mid';
+    return 'pronunciation-low';
+}
+
+window.startPronunciationCheck = function(targetText) {
+    const target = String(targetText || '').trim();
+    if (!target) return;
+
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Recognition) {
+        pronunciationFeedbackHTML(target,
+            '<b>⚠️ Trình duyệt chưa hỗ trợ nhận diện giọng nói.</b><br>Hãy dùng Google Chrome hoặc Microsoft Edge và cho phép truy cập microphone.');
+        return;
+    }
+
+    if (PronunciationState.recognition) {
+        try { PronunciationState.recognition.abort(); } catch (e) {}
+        PronunciationState.recognition = null;
+    }
+
+    const recognition = new Recognition();
+    PronunciationState.recognition = recognition;
+    PronunciationState.target = target;
+    PronunciationState.listening = true;
+    PronunciationState.attempts++;
+
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.continuous = false;
+    recognition.maxAlternatives = 3;
+
+    pronunciationFeedbackHTML(target,
+        `<b>🎙️ Đang nghe...</b> Hãy đọc: <strong>${escapeHTML(target)}</strong><br><span style="color:#666;">Nói rõ một lần rồi chờ hệ thống chấm.</span>\n        <div style="margin-top:7px;"><button class="pronunciation-btn stop" type="button" onclick="stopPronunciationCheck()">⏹ Dừng</button></div>`);
+
+    recognition.onresult = function(event) {
+        const alternatives = [];
+        for (let i = 0; i < event.results.length; i++) {
+            const result = event.results[i];
+            for (let j = 0; j < result.length; j++) alternatives.push(result[j].transcript || '');
+        }
+        const bestTranscript = alternatives
+            .map(x => ({ text:x.trim(), score:calculatePronunciationScore(target, x) }))
+            .sort((a,b) => b.score - a.score)[0] || {text:'', score:0};
+
+        const score = bestTranscript.score;
+        PronunciationState.bestScore = Math.max(PronunciationState.bestScore, score);
+        let title = score >= 90 ? '🌟 Xuất sắc!' : score >= 80 ? '👏 Rất tốt!' : score >= 65 ? '👍 Khá tốt' : '💪 Cần luyện thêm';
+        const cls = pronunciationScoreClass(score);
+        const tips = score >= 85
+            ? 'Phát âm khá sát từ mẫu. Hãy tiếp tục luyện trọng âm và âm cuối.'
+            : 'Hãy bấm “Nghe mẫu”, nghe kỹ rồi đọc lại chậm và rõ hơn.';
+
+        pronunciationFeedbackHTML(target,
+            `<div><b>${title}</b> — điểm khớp <span class="pronunciation-score ${cls}">${score}/100</span></div>\n             <div class="pronunciation-transcript">🎧 Hệ thống nghe được: <b>${escapeHTML(bestTranscript.text || '(không nhận được âm thanh)')}</b></div>\n             <div style="margin-top:5px;color:#555;">🎯 Từ mẫu: <b>${escapeHTML(target)}</b></div>\n             <div style="margin-top:5px;font-size:.9em;color:#666;">${tips}</div>\n             <div style="margin-top:8px;"><button class="pronunciation-btn listen" type="button" onclick="speakWord('${escapeHTML(target)}')">🔊 Nghe lại mẫu</button> <button class="pronunciation-btn check" type="button" onclick="startPronunciationCheck('${escapeHTML(target)}')">🎙️ Thử lại</button></div>`);
+    };
+
+    recognition.onerror = function(event) {
+        let msg = 'Không nhận được giọng nói.';
+        if (event.error === 'not-allowed') msg = 'Microphone chưa được cấp quyền. Hãy cho phép microphone cho trang web rồi thử lại.';
+        else if (event.error === 'no-speech') msg = 'Chưa nghe thấy giọng nói. Hãy thử đọc to và rõ hơn.';
+        else if (event.error === 'audio-capture') msg = 'Không truy cập được microphone. Hãy kiểm tra microphone của máy.';
+        pronunciationFeedbackHTML(target, `<b>⚠️ ${msg}</b><div style="margin-top:8px;"><button class="pronunciation-btn check" type="button" onclick="startPronunciationCheck('${escapeHTML(target)}')">🎙️ Thử lại</button></div>`);
+    };
+
+    recognition.onend = function() {
+        PronunciationState.listening = false;
+        if (PronunciationState.recognition === recognition) PronunciationState.recognition = null;
+    };
+
+    try {
+        recognition.start();
+    } catch (e) {
+        PronunciationState.listening = false;
+        PronunciationState.recognition = null;
+        pronunciationFeedbackHTML(target, `<b>⚠️ Không thể bắt đầu microphone.</b><br>Hãy thử lại sau vài giây.`);
+    }
+};
+
+window.stopPronunciationCheck = function() {
+    if (PronunciationState.recognition) {
+        try { PronunciationState.recognition.stop(); } catch (e) {}
+        PronunciationState.recognition = null;
+    }
+    PronunciationState.listening = false;
+    const target = PronunciationState.target;
+    if (target) pronunciationFeedbackHTML(target, `<b>⏹ Đã dừng kiểm tra.</b> Bạn có thể thử lại từ <strong>${escapeHTML(target)}</strong>.`);
+};
+
 // 1. Quản lý Tra từ điển (Đã tích hợp Anh - Việt)
 // 1. Quản lý Tra từ điển (Đã tích hợp Anh - Việt, Phiên âm & Phát âm)
 window.openDictionaryModal = function() {
@@ -942,7 +1118,8 @@ async function renderWordFamily(word, fallbackHtml = '') {
         html += `<div class="dict-family-item">
             <div>
                 <span class="dict-family-word">${escapeHTML(wordText)}</span>
-                <button class="dict-family-speak" title="Nghe phát âm" onclick="speakWord('${escapeHTML(wordText)}')">🔊</button>
+                <button class="dict-family-speak" title="Nghe phát âm mẫu" onclick="speakWord('${escapeHTML(wordText)}')">🔊</button>
+                <button class="dict-family-check" title="Kiểm tra phát âm" onclick="startPronunciationCheck('${escapeHTML(wordText)}')">🎙️</button>
             </div>
             <div class="dict-family-pos">${escapeHTML(posText)}</div>
             ${meaning ? `<div class="dict-family-meaning">🇻🇳 ${escapeHTML(meaning)}</div>` : ''}
@@ -1100,7 +1277,8 @@ window.lookupWord = async function() {
 
 function speechButtonHTML(text) {
     const safe = escapeHTML(String(text || ''));
-    return `<button class="tool-small-btn" style="background:#ffc107;" onclick="speakWord('${safe}')">🔊 Đọc</button>`;
+    return `<button class="pronunciation-btn listen" type="button" onclick="speakWord('${safe}')">🔊 Nghe mẫu</button>
+            <button class="pronunciation-btn check" type="button" onclick="startPronunciationCheck('${safe}')">🎙️ Kiểm tra</button>`;
 }
 
 window.playDictionaryAudio = function(url) {
@@ -2843,7 +3021,7 @@ window.renderIrregularVerbsTable = function(dataArray) {
         return;
     }
 
-    let html = `<div style="margin-bottom:8px;color:#555;"><b>${dataArray.length}</b> động từ đang hiển thị. Nhấp vào V1/V2/V3 để nghe; bấm <b>📖 Tra nghĩa</b> để lấy nghĩa và ví dụ.</div>`;
+    let html = `<div style="margin-bottom:8px;color:#555;"><b>${dataArray.length}</b> động từ đang hiển thị. Nhấp vào V1/V2/V3 để nghe; bấm <b>🎙️</b> để kiểm tra phát âm; bấm <b>📖 Tra nghĩa</b> để lấy nghĩa và ví dụ.</div>`;
     html += '<div class="iv-table-wrap"><table class="iv-table">';
     html += '<thead><tr style="background:#540606;color:#fff;text-align:left;">' +
         '<th style="padding:10px;border:1px solid #ddd;">#</th>' +
@@ -2857,9 +3035,9 @@ window.renderIrregularVerbsTable = function(dataArray) {
         const id = 'iv-' + index + '-' + cleanKey(item.v1).replace(/[^a-z0-9]/g,'');
         html += `<tr style="background:${bg};">` +
             `<td style="padding:8px;border:1px solid #ddd;">${index + 1}</td>` +
-            `<td style="padding:8px;border:1px solid #ddd;"><span class="iv-verb" style="color:#007bff;" onclick="speakWord('${escapeHTML(item.v1)}')">${escapeHTML(item.v1)} 🔊</span></td>` +
-            `<td style="padding:8px;border:1px solid #ddd;"><span class="iv-verb" onclick="speakWord('${escapeHTML(item.v2)}')">${escapeHTML(item.v2)} 🔊</span></td>` +
-            `<td style="padding:8px;border:1px solid #ddd;"><span class="iv-verb" onclick="speakWord('${escapeHTML(item.v3)}')">${escapeHTML(item.v3)} 🔊</span></td>` +
+            `<td style="padding:8px;border:1px solid #ddd;"><span class="iv-verb" style="color:#007bff;" onclick="speakWord('${escapeHTML(item.v1)}')">${escapeHTML(item.v1)} 🔊</span><button class="iv-pron-btn" title="Kiểm tra phát âm" onclick="startPronunciationCheck('${escapeHTML(item.v1)}')">🎙️</button></td>` +
+            `<td style="padding:8px;border:1px solid #ddd;"><span class="iv-verb" onclick="speakWord('${escapeHTML(item.v2)}')">${escapeHTML(item.v2)} 🔊</span><button class="iv-pron-btn" title="Kiểm tra phát âm" onclick="startPronunciationCheck('${escapeHTML(item.v2)}')">🎙️</button></td>` +
+            `<td style="padding:8px;border:1px solid #ddd;"><span class="iv-verb" onclick="speakWord('${escapeHTML(item.v3)}')">${escapeHTML(item.v3)} 🔊</span><button class="iv-pron-btn" title="Kiểm tra phát âm" onclick="startPronunciationCheck('${escapeHTML(item.v3)}')">🎙️</button></td>` +
             `<td style="padding:8px;border:1px solid #ddd;"><div id="${id}">${item.meaning ? escapeHTML(item.meaning) : '<span style="color:#888;">Chưa tải nghĩa</span>'} <button class="tool-small-btn" style="background:#17a2b8;color:#fff;" onclick="window.lookupIrregularVerbDetail('${escapeHTML(item.v1)}','${id}')">📖 Tra nghĩa</button></div></td>` +
             `</tr>`;
     });
