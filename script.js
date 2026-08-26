@@ -6,9 +6,14 @@ let AppState = {
     rankings: [],
     currentQuizData: [],
     timerInterval: null,
+    timerEndAt: 0,
     correctCount: 0,
     wrongCount: 0,
-    wrongQuestions: []
+    wrongQuestions: [],
+    quizSubmitted: false,
+    dataLoading: false,
+    questionIndex: { bySubject: new Map(), bySubjectTopic: new Map(), bySubjectMade: new Map() },
+    dictionaryCache: new Map()
 };
 
 // Hàm chặn tắt/đóng/load lại trang khi đang làm bài
@@ -32,9 +37,15 @@ function removeDiacritics(str) {
     return String(str).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D');
 }
 
+const _cleanKeyCache = new Map();
 function cleanKey(str) {
-    if (!str) return ''; 
-    return removeDiacritics(str).toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!str) return '';
+    const raw = String(str);
+    if (_cleanKeyCache.has(raw)) return _cleanKeyCache.get(raw);
+    const result = removeDiacritics(raw).toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (_cleanKeyCache.size > 3000) _cleanKeyCache.clear();
+    _cleanKeyCache.set(raw, result);
+    return result;
 }
 
 function standardizeSubject(monStr) {
@@ -44,6 +55,125 @@ function standardizeSubject(monStr) {
     if (cleanM.includes('toan') || cleanM.includes('math')) return 'Toán';
     if (cleanM.includes('tiengviet') || cleanM.includes('tv')) return 'Tiếng Việt';
     return monStr.trim();
+}
+
+// ----------------------------------------------------------
+// INDEX CÂU HỎI: tránh filter toàn bộ mảng lặp đi lặp lại
+// ----------------------------------------------------------
+function rebuildQuestionIndex() {
+    const bySubject = new Map();
+    const bySubjectTopic = new Map();
+    const bySubjectMade = new Map();
+
+    for (const item of AppState.allQuizData) {
+        const subjectKey = cleanKey(item.mon);
+        if (!subjectKey || !item.question) continue;
+
+        if (!bySubject.has(subjectKey)) bySubject.set(subjectKey, []);
+        bySubject.get(subjectKey).push(item);
+
+        const topicKey = cleanKey(item.chuDe);
+        if (topicKey) {
+            const key = subjectKey + '::' + topicKey;
+            if (!bySubjectTopic.has(key)) bySubjectTopic.set(key, []);
+            bySubjectTopic.get(key).push(item);
+        }
+
+        const madeKey = String(item.made || '').trim();
+        if (madeKey) {
+            const key = subjectKey + '::' + madeKey.toLowerCase();
+            if (!bySubjectMade.has(key)) bySubjectMade.set(key, []);
+            bySubjectMade.get(key).push(item);
+        }
+    }
+
+    AppState.questionIndex = { bySubject, bySubjectTopic, bySubjectMade };
+}
+
+function getQuestionsBySubject(subject) {
+    return AppState.questionIndex.bySubject.get(cleanKey(subject)) || [];
+}
+
+function getQuestionsBySubjectTopic(subject, topic) {
+    return AppState.questionIndex.bySubjectTopic.get(cleanKey(subject) + '::' + cleanKey(topic)) || [];
+}
+
+function getQuestionsBySubjectMade(subject, made) {
+    const key = cleanKey(subject) + '::' + String(made || '').trim().toLowerCase();
+    return AppState.questionIndex.bySubjectMade.get(key) || [];
+}
+
+function setQuizActive(active) {
+    if (active) {
+        window.removeEventListener('beforeunload', handleBeforeUnload);
+        window.addEventListener('beforeunload', handleBeforeUnload);
+    } else {
+        window.removeEventListener('beforeunload', handleBeforeUnload);
+    }
+}
+
+// Bộ phân tích biểu thức đơn giản cho máy tính. Không dùng eval/new Function.
+function safeEvaluate(expression) {
+    let expr = String(expression || '')
+        .replace(/×/g, '*').replace(/÷/g, '/')
+        .replace(/Math\.sqrt/g, 'sqrt').replace(/Math\.sin/g, 'sin')
+        .replace(/Math\.cos/g, 'cos').replace(/Math\.tan/g, 'tan')
+        .replace(/Math\.PI/g, 'pi').replace(/\s+/g, '');
+    if (!expr || !/^[0-9+\-*/().%^a-zA-Z_]+$/.test(expr)) throw new Error('Biểu thức không hợp lệ');
+    expr = expr.replace(/\*\*/g, '^');
+
+    const tokens = [];
+    let i = 0;
+    while (i < expr.length) {
+        const ch = expr[i];
+        if (/\d|\./.test(ch)) {
+            let j = i + 1;
+            while (j < expr.length && /[\d.eE+-]/.test(expr[j])) {
+                if ((expr[j] === '+' || expr[j] === '-') && !/[eE]/.test(expr[j-1])) break;
+                j++;
+            }
+            const n = Number(expr.slice(i, j));
+            if (!Number.isFinite(n)) throw new Error('Số không hợp lệ');
+            tokens.push({type:'number', value:n}); i=j; continue;
+        }
+        if (/[a-zA-Z_]/.test(ch)) {
+            let j=i+1; while (j<expr.length && /[a-zA-Z_]/.test(expr[j])) j++;
+            const name=expr.slice(i,j).toLowerCase();
+            if (!['sqrt','sin','cos','tan','pi'].includes(name)) throw new Error('Hàm không được hỗ trợ');
+            tokens.push({type:name==='pi'?'number':'func', value:name==='pi'?Math.PI:name}); i=j; continue;
+        }
+        if ('+-*/%^()'.includes(ch)) { tokens.push({type:'op',value:ch}); i++; continue; }
+        throw new Error('Ký tự không hợp lệ');
+    }
+
+    const output=[]; const ops=[]; const prec={'+':1,'-':1,'*':2,'/':2,'%':2,'^':3};
+    let prev='start';
+    for (const t of tokens) {
+        if (t.type==='number') { output.push(t); prev='value'; continue; }
+        if (t.type==='func') { ops.push(t); prev='func'; continue; }
+        const op=t.value;
+        if (op==='(') { ops.push(t); prev='left'; continue; }
+        if (op===')') {
+            let found=false; while(ops.length){ const top=ops.pop(); if(top.value==='('){found=true;break;} output.push(top); }
+            if(!found) throw new Error('Thiếu ngoặc');
+            if(ops.length && ops[ops.length-1].type==='func') output.push(ops.pop());
+            prev='value'; continue;
+        }
+        if ((op==='+'||op==='-') && (prev==='start'||prev==='op'||prev==='left')) output.push({type:'number',value:0});
+        while(ops.length){ const top=ops[ops.length-1]; if(top.value==='(') break; const p1=prec[op]||0,p2=prec[top.value]||4; if(p2>p1 || (p2===p1 && op!=='^')) output.push(ops.pop()); else break; }
+        ops.push(t); prev='op';
+    }
+    while(ops.length){ const top=ops.pop(); if(top.value==='(') throw new Error('Thiếu ngoặc'); output.push(top); }
+    const stack=[];
+    for(const t of output){
+        if(t.type==='number'){stack.push(t.value);continue;}
+        if(t.type==='func'){ const a=stack.pop(); if(a===undefined) throw new Error('Thiếu tham số'); stack.push({sqrt:Math.sqrt,sin:Math.sin,cos:Math.cos,tan:Math.tan}[t.value](a)); continue;}
+        const b=stack.pop(),a=stack.pop(); if(a===undefined||b===undefined) throw new Error('Thiếu toán hạng');
+        let r; if(t.value==='+')r=a+b; else if(t.value==='-')r=a-b; else if(t.value==='*')r=a*b; else if(t.value==='/')r=a/b; else if(t.value==='%')r=a%b; else r=a**b;
+        if(!Number.isFinite(r)) throw new Error('Kết quả không hợp lệ'); stack.push(r);
+    }
+    if(stack.length!==1 || !Number.isFinite(stack[0])) throw new Error('Biểu thức không hợp lệ');
+    return stack[0];
 }
 
 function speakWord(text) {
@@ -97,6 +227,8 @@ window.lookupWord = async function() {
         return;
     }
 
+    const cached = AppState.dictionaryCache.get(word);
+    if (cached) { resultBox.innerHTML = cached; return; }
     resultBox.innerHTML = 'Đang tra từ Anh - Việt...';
     try {
         let [dictResponse, transResponse] = await Promise.all([
@@ -122,6 +254,7 @@ window.lookupWord = async function() {
                                       `<div style="margin-top: 8px; padding: 10px; background: #e8f5e9; border-radius: 6px; border: 1px solid #c8e6c9;">` +
                                       `<b style="color: #2e7d32;">🇻🇳 Nghĩa tiếng Việt:</b> <span style="color: #1b5e20; font-weight: bold; font-size: 1.1em;">${escapeHTML(vietnameseMeaning)}</span>` +
                                       `</div>`;
+                AppState.dictionaryCache.set(word, resultBox.innerHTML);
                 return;
             }
             resultBox.innerHTML = `<span style="color: red;">Không tìm thấy từ "${escapeHTML(word)}" trong từ điển.</span>`;
@@ -167,6 +300,8 @@ window.lookupWord = async function() {
                 html += `</div>`;
             });
             resultBox.innerHTML = html;
+            if (AppState.dictionaryCache.size > 300) AppState.dictionaryCache.clear();
+            AppState.dictionaryCache.set(word, resultBox.innerHTML);
         }
     } catch(e) {
         resultBox.innerHTML = '<span style="color: red;">Lỗi kết nối khi tra từ. Vui lòng thử lại sau!</span>';
@@ -643,6 +778,7 @@ window.initInterface = function() {
 };
 
 window.loadData = function() {
+    if (AppState.dataLoading) return;
     const maHS = document.getElementById('student-code').value.trim();
     if (!maHS) return alert("Vui lòng nhập mã học sinh!");
     
@@ -655,14 +791,16 @@ window.loadData = function() {
     const container = document.getElementById('topic-container');
     if (container) container.innerHTML = "Đang tải dữ liệu...";
 
+    AppState.dataLoading = true;
     const script = document.createElement('script');
     script.src = API_URL + '?ma=' + encodeURIComponent(maHS) + '&callback=handleQuizData';
     script.onerror = () => { 
+        AppState.dataLoading = false;
         script.remove(); 
         if (container) container.innerHTML = "Lỗi kết nối mạng khi tải dữ liệu."; 
     };
     document.body.appendChild(script);
-    script.onload = () => script.remove();
+    script.onload = () => { AppState.dataLoading = false; script.remove(); };
 };
 
 window.handleQuizData = function(data) {
@@ -693,6 +831,8 @@ window.handleQuizData = function(data) {
 
             return item;
         }).filter(item => item && item.question !== '' && item.mon !== '' && cleanKey(item.mon) !== 'id');
+
+        rebuildQuestionIndex();
 
         AppState.userPermissions = (data.permissions || []).map(p => ({
             maHS: String(p.maHS || p[0] || '').trim(),
@@ -1021,7 +1161,7 @@ window.startQuiz = function() {
     const cleanM = standardizeSubject(mon);
 
     if (selectedMade) {
-        rawSelectedQuestions = AppState.allQuizData.filter(i => cleanKey(i.mon) === cleanKey(mon) && String(i.made).trim() === selectedMade && i.question !== '');
+        rawSelectedQuestions = getQuestionsBySubjectMade(mon, selectedMade).filter(i => i.question !== '');
         totalSeconds = 45 * 60;
     } else {
         if (!selectedTopics.length) return alert("Vui lòng chọn chủ đề!");
@@ -1039,11 +1179,11 @@ window.startQuiz = function() {
         let storedWrongs = getStoredWrongQuestions(maHS, mon);
         let targetCount = 20;
 
-        let topicPool = AppState.allQuizData.filter(i => 
-            cleanKey(i.mon) === cleanKey(mon) && 
-            selectedTopics.includes(i.chuDe) && 
-            i.question !== ''
-        );
+        let topicPool = [];
+        for (const topic of selectedTopics) {
+            topicPool.push(...getQuestionsBySubjectTopic(mon, topic));
+        }
+        topicPool = topicPool.filter(i => i.question !== '');
 
         let uniquePool = [];
         let seenQ = new Set();
@@ -1155,8 +1295,9 @@ window.startQuiz = function() {
     const quizScreen = document.getElementById('quiz-screen');
     if (quizScreen) quizScreen.style.display = 'block';
 
-    window.addEventListener('beforeunload', handleBeforeUnload);
+    setQuizActive(true);
 
+    AppState.quizSubmitted = false;
     updateScoreDisplay();
     window.renderQuiz();
     window.startTimerTotal(totalSeconds);
@@ -1200,8 +1341,9 @@ window.startWrongQuiz = function() {
     const quizScreen = document.getElementById('quiz-screen');
     if (quizScreen) quizScreen.style.display = 'block';
 
-    window.addEventListener('beforeunload', handleBeforeUnload);
+    setQuizActive(true);
 
+    AppState.quizSubmitted = false;
     updateScoreDisplay();
     window.renderQuiz();
     window.startTimerTotal(10 * 60);
@@ -1402,28 +1544,34 @@ window.submitTextAnswer = function(index) {
 
 window.startTimerTotal = function(durationSeconds) {
     clearInterval(AppState.timerInterval);
-    let remainingTime = durationSeconds;
+    const duration = Math.max(0, Number(durationSeconds) || 0);
+    AppState.timerEndAt = Date.now() + duration * 1000;
     const timerDisplay = document.getElementById('timer-display');
-    
-    AppState.timerInterval = setInterval(() => {
-        remainingTime--;
-        let minutes = Math.floor(remainingTime / 60);
-        let seconds = remainingTime % 60;
-        if (timerDisplay) {
-            timerDisplay.innerHTML = minutes + ':' + (seconds < 10 ? '0' : '') + seconds;
-        }
-        if (remainingTime <= 0) {
+
+    const tick = () => {
+        const remaining = Math.max(0, Math.ceil((AppState.timerEndAt - Date.now()) / 1000));
+        const minutes = Math.floor(remaining / 60);
+        const seconds = remaining % 60;
+        if (timerDisplay) timerDisplay.textContent = minutes + ':' + String(seconds).padStart(2, '0');
+        if (remaining <= 0) {
             clearInterval(AppState.timerInterval);
-            alert("Đã hết thời gian làm bài!");
-            window.submitQuiz();
+            AppState.timerInterval = null;
+            if (!AppState.quizSubmitted) {
+                alert("Đã hết thời gian làm bài!");
+                window.submitQuiz();
+            }
         }
-    }, 1000);
+    };
+    tick();
+    AppState.timerInterval = setInterval(tick, 500);
 };
 
 window.submitQuiz = function() {
-    if (typeof handleBeforeUnload !== 'undefined') {
-        window.removeEventListener('beforeunload', handleBeforeUnload);
-    }
+    if (AppState.quizSubmitted) return;
+    AppState.quizSubmitted = true;
+    clearInterval(AppState.timerInterval);
+    AppState.timerInterval = null;
+    setQuizActive(false);
 
     let maHS = document.getElementById('student-code') ? document.getElementById('student-code').value.trim() : localStorage.getItem('saved_maHS');
     let mon = document.getElementById('subject-select') ? document.getElementById('subject-select').value : '';
@@ -1832,7 +1980,7 @@ window.calcCalculate = function() {
 
     try {
         let expression = display.value.replace(/×/g, '*').replace(/÷/g, '/');
-        let result = new Function(`return ${expression}`)();
+        let result = safeEvaluate(expression);
         
         if (result !== undefined && !isNaN(result)) {
             display.value = result;
@@ -1904,7 +2052,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 'Đổi đơn vị': 6,
                 'Phân số': 4,
                 'Phép tính số thập phân': 4,
-                'So sánh phân số': 6
+                'So sánh phân số': 5
             };
 
             let selectedQuestions = [];
@@ -2069,7 +2217,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 try {
                     let expression = display.value.replace(/×/g, '*').replace(/÷/g, '/');
-                    let result = new Function(`return ${expression}`)();
+                    let result = safeEvaluate(expression);
                     
                     if (result !== undefined && !isNaN(result)) {
                         display.value = result;
