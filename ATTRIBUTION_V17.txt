@@ -1,0 +1,12 @@
+V17 DATA ATTRIBUTION
+
+This application is designed to consume open English-Vietnamese dictionary data.
+Potential source for rich offline data: thichhoc-dict, licensed CC BY-SA 4.0.
+https://github.com/thichhoc-org/thichhoc-dict
+Source origins listed by that project: WordNet 3.1 (Princeton), CMUdict (CMU), Wiktionary.
+
+Potential alternative source: skypediacode/english-vietnamese-dictionary, licensed CC BY-SA 4.0.
+https://github.com/skypediacode/english-vietnamese-dictionary
+Its attribution states it derives from MinhQND Dictionary and other open resources.
+
+If rich dictionary data is redistributed with this application, retain the applicable CC BY-SA 4.0 attribution and share-alike requirements.
