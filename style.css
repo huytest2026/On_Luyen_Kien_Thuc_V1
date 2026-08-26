@@ -1,3 +1,5 @@
+
+
 /* --- BIẾN MÀU SẮC (Dễ dàng thay đổi sau này) --- */
 :root {
     --primary: #4f46e5;
@@ -539,3 +541,16 @@ function doPost(e) {
             .setMimeType(ContentService.MimeType.JSON);
     }
 }
+
+/* V12: IPA pronunciation */
+.dict-pronunciation-card{margin:10px 0;padding:12px 14px;background:#f8fbff;border:1px solid #cfe3ff;border-radius:9px;}
+.dict-pronunciation-title{font-weight:800;color:#0759a5;margin-bottom:6px;}
+.dict-ipa-row{display:flex;align-items:center;gap:10px;margin:4px 0;}
+.dict-ipa-label{min-width:82px;color:#666;font-size:.88em;}
+.dict-ipa-row code{font-size:1.08em;color:#8b1e1e;background:#fff;padding:3px 8px;border-radius:5px;}
+.dict-ipa-note{margin-top:7px;color:#666;font-size:.82em;}
+.dict-ipa-missing{color:#777;font-style:italic;}
+.dict-family-ipa{font-family:monospace;color:#8b1e1e;margin-left:4px;font-size:.92em;}
+.dict-family-ipa-label{font-size:.82em;color:#8b1e1e;margin-top:2px;}
+body.dark-mode .dict-pronunciation-card{background:#202b38;border-color:#496b8e;}
+body.dark-mode .dict-ipa-row code{background:#2b3035;color:#ffb3b3;}
