@@ -401,14 +401,119 @@ function dictV11NormalizeWord(value) {
 
 
 // ==========================================
-// V13 OFFLINE DICTIONARY – 10.000 TỪ
-// Offline-first: từ + IPA có sẵn; nghĩa/định nghĩa online sẽ được bổ sung khi có mạng.
+// V16 INSTANT OFFLINE DICTIONARY – 50.000 TỪ
+// Lazy shards + IndexedDB + Memory Cache.
+// Chỉ tải shard cần thiết; sau đó giữ shard trong IndexedDB.
 // ==========================================
-function getOffline10KEntry(word) {
+const V16_DICT_DB_NAME = 'EnglishDictionaryOffline50K_V16';
+const V16_DICT_STORE = 'shards';
+const V16_DICT_VERSION = 1;
+const V16_DICT_PATH = 'dictionary-50k/';
+const V16_DICT_COUNT = 50000;
+const V16_DICT_MEMORY = new Map();
+const V16_DICT_LOADING = new Map();
+let v16DictDBPromise = null;
+
+function v16OpenDictDB() {
+    if (v16DictDBPromise) return v16DictDBPromise;
+    v16DictDBPromise = new Promise((resolve) => {
+        if (!('indexedDB' in window)) { resolve(null); return; }
+        const req = indexedDB.open(V16_DICT_DB_NAME, V16_DICT_VERSION);
+        req.onupgradeneeded = () => {
+            const db = req.result;
+            if (!db.objectStoreNames.contains(V16_DICT_STORE)) {
+                db.createObjectStore(V16_DICT_STORE, { keyPath: 'id' });
+            }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(null);
+    });
+    return v16DictDBPromise;
+}
+
+function v16ShardForWord(word) {
+    const w = dictV11NormalizeWord(word);
+    const c = w.charAt(0);
+    return /^[a-z]$/.test(c) ? c : 'other';
+}
+
+async function v16ReadShardFromIDB(shard) {
+    const db = await v16OpenDictDB();
+    if (!db) return null;
+    return new Promise(resolve => {
+        try {
+            const tx = db.transaction(V16_DICT_STORE, 'readonly');
+            const req = tx.objectStore(V16_DICT_STORE).get(shard);
+            req.onsuccess = () => resolve(req.result?.data || null);
+            req.onerror = () => resolve(null);
+        } catch (e) { resolve(null); }
+    });
+}
+
+async function v16WriteShardToIDB(shard, data) {
+    const db = await v16OpenDictDB();
+    if (!db) return;
+    try {
+        await new Promise(resolve => {
+            const tx = db.transaction(V16_DICT_STORE, 'readwrite');
+            tx.objectStore(V16_DICT_STORE).put({ id: shard, data, savedAt: Date.now() });
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => resolve();
+            tx.onabort = () => resolve();
+        });
+    } catch (e) {}
+}
+
+async function v16LoadShard(shard) {
+    if (V16_DICT_MEMORY.has(shard)) return V16_DICT_MEMORY.get(shard);
+    if (V16_DICT_LOADING.has(shard)) return V16_DICT_LOADING.get(shard);
+
+    const promise = (async () => {
+        let data = await v16ReadShardFromIDB(shard);
+        if (!data) {
+            try {
+                const response = await fetch(`${V16_DICT_PATH}${shard}.json`, { cache: 'force-cache' });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                data = await response.json();
+                v16WriteShardToIDB(shard, data).catch(() => {});
+            } catch (e) {
+                data = null;
+            }
+        }
+        if (data) V16_DICT_MEMORY.set(shard, data);
+        return data;
+    })();
+
+    V16_DICT_LOADING.set(shard, promise);
+    try {
+        return await promise;
+    } finally {
+        V16_DICT_LOADING.delete(shard);
+    }
+}
+
+async function getOffline50KEntry(word) {
     const key = dictV11NormalizeWord(word);
-    const db = window.OFFLINE_DICTIONARY_50K;
-    if (!db || !key) return null;
-    return db[key] || null;
+    if (!key) return null;
+    const data = await v16LoadShard(v16ShardForWord(key));
+    return data?.[key] || null;
+}
+
+function v16BackgroundPreload() {
+    if (navigator.connection?.saveData) return;
+    const letters = "abcdefghijklmnopqrstuvwxyz".split("");
+    const run = async () => {
+        for (const letter of letters) {
+            if (!V16_DICT_MEMORY.has(letter)) {
+                await v16LoadShard(letter);
+            }
+        }
+    };
+    if ('requestIdleCallback' in window) {
+        requestIdleCallback(run, { timeout: 2500 });
+    } else {
+        setTimeout(run, 2500);
+    }
 }
 
 function buildOffline10KHTML(word, entry) {
@@ -417,12 +522,12 @@ function buildOffline10KHTML(word, entry) {
         <div class="dict-offline-card" style="background:#eef7ff;border:1px solid #b8d8f0;border-radius:10px;padding:14px;margin-bottom:10px;">
             <div class="dict-word-head" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                 <b style="font-size:1.45em;color:#540606;">${escapeHTML(word)}</b>
-                <span style="font-size:.82em;background:#dff1ff;color:#145a86;padding:4px 8px;border-radius:999px;">⚡ OFFLINE 10K</span>
+                <span style="font-size:.82em;background:#dff1ff;color:#145a86;padding:4px 8px;border-radius:999px;">⚡ OFFLINE 50K</span>
                 ${speechButtonHTML(word)}
             </div>
             ${ipa ? `<div style="margin-top:9px;font-size:1.12em;"><b>🔤 IPA:</b> <code style="font-size:1.1em;">${escapeHTML(ipa)}</code></div>` : ''}
             <div style="margin-top:10px;color:#555;font-size:.92em;">
-                📚 Từ này có trong kho offline 10.000 từ. Phiên âm có thể xem và luyện phát âm ngay cả khi không có Internet.
+                📚 Từ này có trong kho offline 50.000 từ. Phiên âm có thể xem và luyện phát âm ngay cả khi không có Internet.
             </div>
             <div id="dict-offline-online-slot" style="margin-top:12px;"></div>
         </div>`;
@@ -898,7 +1003,7 @@ window.lookupWord = async function(requestedWord = '') {
 
     // V13: Offline-first. Nếu có trong kho 10K, hiển thị IPA ngay lập tức,
     // sau đó mới bổ sung nghĩa/định nghĩa online ở chế độ nền.
-    const offlineEntry = getOffline10KEntry(word);
+    const offlineEntry = await getOffline50KEntry(word);
     if (offlineEntry) {
         // V14: luôn hiển thị bản Offline trước. Cache cũ không được phép ghi đè
         // bản Offline ngay lập tức. Nếu đã có cache giàu dữ liệu từ lần online trước,
@@ -3340,3 +3445,5 @@ window.printPDF = function() {
     }
     window.print();
 };
+
+window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e) {} });
