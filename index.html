@@ -1,3 +1,4 @@
+html:
 <!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -121,6 +122,15 @@
         .dict-definition { margin: 6px 0; }
         .dict-example { margin:4px 0 0 12px; color:#555; font-style:italic; }
         .dict-synonyms { margin-top:8px; color:#6f42c1; }
+        .dict-family { margin-top:12px; padding:12px; background:#fff8e1; border:1px solid #ffe082; border-radius:8px; }
+        .dict-family-title { font-weight:800; color:#8a4b00; margin-bottom:8px; }
+        .dict-family-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:8px; }
+        .dict-family-item { background:#fff; border:1px solid #eee; border-radius:7px; padding:8px 10px; }
+        .dict-family-word { font-weight:800; color:#540606; }
+        .dict-family-pos { font-size:.86em; color:#007bff; font-weight:700; }
+        .dict-family-meaning { margin-top:3px; color:#333; }
+        .dict-family-def { margin-top:3px; font-size:.86em; color:#666; }
+        .dict-family-speak { cursor:pointer; border:0; background:transparent; padding:0 3px; font-size:1em; }
         .iv-table-wrap { overflow:auto; max-height:520px; border-radius:8px; }
         .iv-table { width:100%; border-collapse:collapse; min-width:720px; }
         .iv-table th { position:sticky; top:0; z-index:2; }
@@ -766,6 +776,188 @@ window.closeDictionaryModal = function() {
     if (modal) modal.style.display = 'none';
 };
 
+// ==========================================
+// TRA TỪ NÂNG CAO + HỌ TỪ (WORD FAMILY)
+// ==========================================
+
+// Các họ từ quan trọng được định nghĩa sẵn để bảo đảm kết quả chính xác.
+// Có thể tiếp tục bổ sung dần mà không ảnh hưởng đến API.
+const WORD_FAMILY_MAP = {
+    advice: [
+        { word:'advice', pos:'noun', meaning:'lời khuyên, lời tư vấn' },
+        { word:'advise', pos:'verb', meaning:'khuyên, tư vấn' },
+        { word:'advised', pos:'verb/adj', meaning:'đã khuyên; được khuyên, sáng suốt' },
+        { word:'advising', pos:'verb', meaning:'đang tư vấn, việc tư vấn' },
+        { word:'adviser', pos:'noun', meaning:'cố vấn, người tư vấn' },
+        { word:'advisor', pos:'noun', meaning:'cố vấn, người tư vấn' },
+        { word:'advisable', pos:'adjective', meaning:'nên làm, thích hợp, đáng khuyên' },
+        { word:'advisory', pos:'adjective/noun', meaning:'mang tính tư vấn; khuyến cáo, thông báo tư vấn' },
+        { word:'advisement', pos:'noun', meaning:'sự tư vấn, sự cân nhắc' },
+        { word:'advisability', pos:'noun', meaning:'tính thích hợp, tính đáng làm' },
+        { word:'advisably', pos:'adverb', meaning:'một cách khôn ngoan, hợp lý' },
+        { word:'advisedly', pos:'adverb', meaning:'một cách có cân nhắc' }
+    ],
+    advise: [
+        { word:'advice', pos:'noun', meaning:'lời khuyên, lời tư vấn' },
+        { word:'advise', pos:'verb', meaning:'khuyên, tư vấn' },
+        { word:'advised', pos:'verb/adj', meaning:'đã khuyên; được khuyên, sáng suốt' },
+        { word:'advising', pos:'verb', meaning:'đang tư vấn, việc tư vấn' },
+        { word:'adviser', pos:'noun', meaning:'cố vấn, người tư vấn' },
+        { word:'advisor', pos:'noun', meaning:'cố vấn, người tư vấn' },
+        { word:'advisable', pos:'adjective', meaning:'nên làm, thích hợp, đáng khuyên' },
+        { word:'advisory', pos:'adjective/noun', meaning:'mang tính tư vấn; khuyến cáo' },
+        { word:'advisement', pos:'noun', meaning:'sự tư vấn, sự cân nhắc' }
+    ]
+};
+
+const WORD_FAMILY_POS = {
+    noun:'Danh từ (noun)', verb:'Động từ (verb)', adjective:'Tính từ (adjective)',
+    adverb:'Trạng từ (adverb)', 'verb/adj':'Động từ / Tính từ',
+    'adjective/noun':'Tính từ / Danh từ', 'noun/verb':'Danh từ / Động từ'
+};
+
+function wordFamilyLabel(pos) {
+    return WORD_FAMILY_POS[pos] || pos || 'Từ loại khác';
+}
+
+function getFamilyPrefixCandidates(word) {
+    const w = cleanKey(word).replace(/[^a-z]/g, '');
+    if (w.length < 4) return [];
+    const prefixes = new Set();
+
+    // Prefix dài giúp giảm từ không liên quan; nhiều prefix để xử lý các biến thể.
+    prefixes.add(w.slice(0, Math.min(6, w.length)));
+    prefixes.add(w.slice(0, Math.min(5, w.length)));
+    prefixes.add(w.slice(0, 4));
+
+    // Một số dạng biến đổi phổ biến.
+    if (w.endsWith('e')) prefixes.add(w.slice(0, -1).slice(0, 6));
+    if (w.endsWith('y')) prefixes.add(w.slice(0, -1).slice(0, 6));
+    if (w.endsWith('ing')) prefixes.add(w.slice(0, -3).slice(0, 6));
+    if (w.endsWith('ed')) prefixes.add(w.slice(0, -2).slice(0, 6));
+    if (w.endsWith('ly')) prefixes.add(w.slice(0, -2).slice(0, 6));
+    if (w.endsWith('ness')) prefixes.add(w.slice(0, -4).slice(0, 6));
+    if (w.endsWith('ment')) prefixes.add(w.slice(0, -4).slice(0, 6));
+    if (w.endsWith('tion')) prefixes.add(w.slice(0, -4).slice(0, 6));
+    if (w.endsWith('sion')) prefixes.add(w.slice(0, -4).slice(0, 6));
+    return Array.from(prefixes).filter(x => x.length >= 4);
+}
+
+async function discoverWordFamily(word) {
+    const exact = WORD_FAMILY_MAP[cleanKey(word)];
+    if (exact) return exact;
+
+    const prefixes = getFamilyPrefixCandidates(word);
+    if (!prefixes.length) return [];
+
+    const found = new Map();
+    const requests = prefixes.slice(0, 3).map(async prefix => {
+        try {
+            const url = `https://api.datamuse.com/words?sp=${encodeURIComponent(prefix)}*&md=p&max=40`;
+            const res = await fetch(url);
+            if (!res.ok) return;
+            const data = await res.json();
+            if (!Array.isArray(data)) return;
+            data.forEach(item => {
+                const candidate = String(item.word || '').toLowerCase().trim();
+                if (!/^[a-z]+$/.test(candidate)) return;
+                if (candidate === cleanKey(word)) return;
+
+                // Chỉ nhận từ có chung phần đầu đủ dài; tránh các từ ngẫu nhiên.
+                const shared = prefixes.some(p => candidate.startsWith(p));
+                if (!shared || candidate.length > 24) return;
+
+                const tags = Array.isArray(item.tags) ? item.tags : [];
+                const posTag = tags.find(t => ['n','v','adj','adv'].includes(t));
+                const pos = {n:'noun',v:'verb',adj:'adjective',adv:'adverb'}[posTag] || '';
+                if (!found.has(candidate)) found.set(candidate, {
+                    word: candidate,
+                    pos,
+                    meaning: ''
+                });
+            });
+        } catch(e) {}
+    });
+
+    await Promise.all(requests);
+
+    // Giới hạn để giao diện không quá dài.
+    return Array.from(found.values())
+        .sort((a,b) => a.word.length - b.word.length || a.word.localeCompare(b.word))
+        .slice(0, 12);
+}
+
+async function enrichFamilyItem(item) {
+    const cacheKey = 'family::' + cleanKey(item.word);
+    const cached = AppState.dictionaryCache.get(cacheKey);
+    if (cached && cached.__familyMeta) return cached.__familyMeta;
+
+    try {
+        const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(item.word)}`);
+        if (res.ok) {
+            const data = await res.json();
+            const entries = Array.isArray(data) ? data : [];
+            const meanings = entries.flatMap(e => Array.isArray(e.meanings) ? e.meanings : []);
+            const first = meanings.find(m => m && m.definitions && m.definitions.length);
+            const pos = item.pos || first?.partOfSpeech || '';
+            const def = first?.definitions?.[0]?.definition || '';
+            const result = { ...item, pos, meaning: item.meaning || '', definition: def };
+            AppState.dictionaryCache.set(cacheKey, {__familyMeta: result});
+            return result;
+        }
+    } catch(e) {}
+    return item;
+}
+
+async function renderWordFamily(word, fallbackHtml = '') {
+    const seed = cleanKey(word);
+    let family = WORD_FAMILY_MAP[seed] || await discoverWordFamily(seed);
+
+    if (!family.length) return '';
+
+    // Với họ từ định nghĩa sẵn, không cần gọi API hàng loạt.
+    if (!WORD_FAMILY_MAP[seed]) {
+        family = await Promise.all(family.slice(0, 12).map(enrichFamilyItem));
+    }
+
+    // Không hiển thị lại từ chính ở đầu danh sách; từ chính vẫn nằm ở header.
+    const unique = [];
+    const seen = new Set();
+    family.forEach(item => {
+        const w = cleanKey(item.word);
+        if (!w || seen.has(w)) return;
+        seen.add(w);
+        unique.push(item);
+    });
+
+    let html = `<div class="dict-family">
+        <div class="dict-family-title">🌿 Họ từ / Word Family</div>
+        <div class="dict-family-grid">`;
+
+    unique.forEach(item => {
+        const wordText = item.word;
+        const posText = wordFamilyLabel(item.pos);
+        const meaning = item.meaning || '';
+        const definition = item.definition || '';
+        html += `<div class="dict-family-item">
+            <div>
+                <span class="dict-family-word">${escapeHTML(wordText)}</span>
+                <button class="dict-family-speak" title="Nghe phát âm" onclick="speakWord('${escapeHTML(wordText)}')">🔊</button>
+            </div>
+            <div class="dict-family-pos">${escapeHTML(posText)}</div>
+            ${meaning ? `<div class="dict-family-meaning">🇻🇳 ${escapeHTML(meaning)}</div>` : ''}
+            ${definition ? `<div class="dict-family-def">EN: ${escapeHTML(definition)}</div>` : ''}
+        </div>`;
+    });
+
+    html += `</div>
+        <div style="margin-top:8px;color:#777;font-size:.86em;">
+            💡 Bấm 🔊 để nghe từng từ. Nhập một từ trong họ từ vào ô tra để xem đầy đủ định nghĩa và ví dụ.
+        </div>
+    </div>`;
+    return html;
+}
+
 window.lookupWord = async function() {
     const input = document.getElementById('dict-input');
     const resultBox = document.getElementById('dict-result');
@@ -779,90 +971,127 @@ window.lookupWord = async function() {
 
     const cacheKey = cleanKey(word);
     const cached = AppState.dictionaryCache.get(cacheKey);
-    if (cached) {
+    if (typeof cached === 'string') {
         resultBox.innerHTML = cached;
         return;
     }
 
-    resultBox.innerHTML = '<div style="padding:12px;text-align:center;">🔎 Đang tra từ điển mở rộng...</div>';
+    resultBox.innerHTML = '<div style="padding:12px;text-align:center;">🔎 Đang tra từ điển + họ từ...</div>';
 
     try {
         const dictUrl = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`;
         const transUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(word)}&langpair=en|vi`;
-        const [dictResponse, transResponse] = await Promise.all([
+
+        const [dictResponse, transResponse, familyHtml] = await Promise.all([
             fetch(dictUrl).catch(() => null),
-            fetch(transUrl).catch(() => null)
+            fetch(transUrl).catch(() => null),
+            renderWordFamily(word).catch(() => '')
         ]);
 
         let vietnameseMeaning = '';
         if (transResponse && transResponse.ok) {
-            const transData = await transResponse.json();
-            vietnameseMeaning = transData?.responseData?.translatedText || '';
+            try {
+                const transData = await transResponse.json();
+                vietnameseMeaning = transData?.responseData?.translatedText || '';
+            } catch(e) {}
         }
 
         if (!dictResponse || !dictResponse.ok) {
             if (vietnameseMeaning && vietnameseMeaning.toLowerCase() !== word) {
-                const fallback = `<div class="dict-word-head"><b style="font-size:1.35em;color:#540606;">${escapeHTML(word)}</b>${speechButtonHTML(word)}</div>
-                    <div style="padding:12px;background:#e8f5e9;border-radius:7px;"><b>🇻🇳 Nghĩa tiếng Việt:</b> ${escapeHTML(vietnameseMeaning)}</div>
-                    <div style="margin-top:10px;color:#666;">Từ này chưa có dữ liệu chi tiết từ English Dictionary API. Bạn vẫn có thể nghe phát âm.</div>`;
+                const fallback = `<div class="dict-word-head">
+                        <b style="font-size:1.35em;color:#540606;">${escapeHTML(word)}</b>
+                        ${speechButtonHTML(word)}
+                    </div>
+                    <div style="padding:12px;background:#e8f5e9;border-radius:7px;">
+                        <b>🇻🇳 Nghĩa tiếng Việt:</b> ${escapeHTML(vietnameseMeaning)}
+                    </div>
+                    ${familyHtml}
+                    <div style="margin-top:10px;color:#666;">
+                        Từ này chưa có dữ liệu chi tiết từ English Dictionary API.
+                    </div>`;
                 resultBox.innerHTML = fallback;
                 AppState.dictionaryCache.set(cacheKey, fallback);
                 return;
             }
-            resultBox.innerHTML = `<span style="color:red;">Không tìm thấy từ <b>${escapeHTML(word)}</b>. Hãy thử dạng từ nguyên mẫu.</span>`;
+
+            resultBox.innerHTML = `<span style="color:red;">Không tìm thấy từ <b>${escapeHTML(word)}</b>. Hãy thử dạng từ nguyên mẫu.</span>${familyHtml}`;
             return;
         }
 
         const data = await dictResponse.json();
         if (!Array.isArray(data) || !data.length) throw new Error('No dictionary data');
 
-        const entry = data[0];
-        const phonetic = entry.phonetic || entry.phonetics?.find(p => p.text)?.text || '';
-        const audioUrl = entry.phonetics?.find(p => p.audio)?.audio || '';
+        // Gộp meanings từ tất cả entries thay vì chỉ lấy data[0].
+        const entries = data;
+        const mainEntry = entries[0];
+        const mainWord = mainEntry.word || word;
+        const phonetic = entries.map(e => e.phonetic).find(Boolean)
+            || entries.flatMap(e => e.phonetics || []).map(p => p.text).find(Boolean) || '';
+        const audioUrl = entries.flatMap(e => e.phonetics || []).map(p => p.audio).find(Boolean) || '';
+
         let html = `<div class="dict-word-head">
-            <b style="font-size:1.45em;color:#540606;">${escapeHTML(entry.word || word)}</b>
+            <b style="font-size:1.45em;color:#540606;">${escapeHTML(mainWord)}</b>
             ${phonetic ? `<span style="color:#d9534f;font-family:monospace;font-style:italic;">${escapeHTML(phonetic)}</span>` : ''}
             ${audioUrl ? `<button class="tool-small-btn" style="background:#ffc107;" onclick="window.playDictionaryAudio('${escapeHTML(audioUrl)}')">🔊 Audio</button>` : ''}
-            ${speechButtonHTML(entry.word || word)}
+            ${speechButtonHTML(mainWord)}
         </div>`;
 
         if (vietnameseMeaning && vietnameseMeaning.toLowerCase() !== word) {
-            html += `<div style="margin:8px 0;padding:10px;background:#e8f5e9;border:1px solid #c8e6c9;border-radius:7px;"><b style="color:#2e7d32;">🇻🇳 Nghĩa nổi bật:</b> <span style="font-weight:700;color:#1b5e20;">${escapeHTML(vietnameseMeaning)}</span></div>`;
+            html += `<div style="margin:8px 0;padding:10px;background:#e8f5e9;border:1px solid #c8e6c9;border-radius:7px;">
+                <b style="color:#2e7d32;">🇻🇳 Nghĩa nổi bật:</b>
+                <span style="font-weight:700;color:#1b5e20;">${escapeHTML(vietnameseMeaning)}</span>
+            </div>`;
         }
 
         const allSynonyms = new Set();
         let posCount = 0;
-        (entry.meanings || []).forEach(meaning => {
-            posCount++;
-            const pos = meaning.partOfSpeech || 'other';
-            const posLabel = {
-                noun:'Danh từ (noun)', verb:'Động từ (verb)', adjective:'Tính từ (adjective)',
-                adverb:'Trạng từ (adverb)', pronoun:'Đại từ (pronoun)', preposition:'Giới từ (preposition)',
-                conjunction:'Liên từ (conjunction)', interjection:'Thán từ (interjection)', determiner:'Từ hạn định (determiner)'
-            }[pos] || pos;
-            html += `<div class="dict-pos-block"><div style="font-weight:800;color:#007bff;font-size:1.08em;">${escapeHTML(posLabel)}</div>`;
 
-            const defs = Array.isArray(meaning.definitions) ? meaning.definitions : [];
-            defs.forEach((def, idx) => {
-                if (idx >= 8) return;
-                html += `<div class="dict-definition"><b>${idx + 1}.</b> ${escapeHTML(def.definition || '')}`;
-                if (def.example) html += `<div class="dict-example">💬 Ví dụ: “${escapeHTML(def.example)}”</div>`;
+        entries.forEach(entry => {
+            (entry.meanings || []).forEach(meaning => {
+                posCount++;
+                const pos = meaning.partOfSpeech || 'other';
+                const posLabel = {
+                    noun:'Danh từ (noun)', verb:'Động từ (verb)', adjective:'Tính từ (adjective)',
+                    adverb:'Trạng từ (adverb)', pronoun:'Đại từ (pronoun)', preposition:'Giới từ (preposition)',
+                    conjunction:'Liên từ (conjunction)', interjection:'Thán từ (interjection)',
+                    determiner:'Từ hạn định (determiner)'
+                }[pos] || pos;
+
+                html += `<div class="dict-pos-block">
+                    <div style="font-weight:800;color:#007bff;font-size:1.08em;">${escapeHTML(posLabel)}</div>`;
+
+                const defs = Array.isArray(meaning.definitions) ? meaning.definitions : [];
+                defs.slice(0, 12).forEach((def, idx) => {
+                    html += `<div class="dict-definition">
+                        <b>${idx + 1}.</b> ${escapeHTML(def.definition || '')}`;
+                    if (def.example) {
+                        html += `<div class="dict-example">💬 Ví dụ: “${escapeHTML(def.example)}”</div>`;
+                    }
+                    html += `</div>`;
+                    (def.synonyms || []).forEach(x => allSynonyms.add(x));
+                });
+
+                (meaning.synonyms || []).forEach(x => allSynonyms.add(x));
                 html += `</div>`;
-                (def.synonyms || []).forEach(x => allSynonyms.add(x));
             });
-            (meaning.synonyms || []).forEach(x => allSynonyms.add(x));
-            html += `</div>`;
         });
 
         if (allSynonyms.size) {
-            html += `<div class="dict-synonyms"><b>🔗 Từ đồng nghĩa:</b> ${Array.from(allSynonyms).slice(0,25).map(escapeHTML).join(', ')}</div>`;
+            html += `<div class="dict-synonyms">
+                <b>🔗 Từ đồng nghĩa:</b> ${Array.from(allSynonyms).slice(0, 40).map(escapeHTML).join(', ')}
+            </div>`;
         }
 
+        // Đây là phần mới: luôn đưa họ từ xuống dưới nghĩa chính.
+        html += familyHtml;
+
         if (!posCount) html += '<div>Không có dữ liệu từ loại chi tiết.</div>';
-        html += `<div style="margin-top:12px;font-size:.88em;color:#777;">📚 Dữ liệu: English Dictionary API + MyMemory translation.</div>`;
+        html += `<div style="margin-top:12px;font-size:.88em;color:#777;">
+            📚 Dữ liệu: English Dictionary API + MyMemory + Word Family.
+        </div>`;
 
         resultBox.innerHTML = html;
-        if (AppState.dictionaryCache.size > 500) AppState.dictionaryCache.clear();
+        if (AppState.dictionaryCache.size > 700) AppState.dictionaryCache.clear();
         AppState.dictionaryCache.set(cacheKey, html);
     } catch (e) {
         resultBox.innerHTML = '<span style="color:red;">Lỗi kết nối khi tra từ. Vui lòng thử lại sau!</span>';
