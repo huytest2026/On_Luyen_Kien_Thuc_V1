@@ -389,8 +389,8 @@ window.closeDictionaryModal = function() {
 // Memory -> IndexedDB -> localStorage fallback
 // Progressive loading + stale-while-revalidate
 // ==========================================
-const DICT_V11_CACHE_VERSION = 'v13-offline-10k-ipa';
-const DICT_V11_DB_NAME = 'EnglishDictionaryCacheV11';
+const DICT_V11_CACHE_VERSION = 'v14-offline-10k-hybrid';
+const DICT_V11_DB_NAME = 'EnglishDictionaryCacheV14';
 const DICT_V11_STORE = 'entries';
 const DICT_V11_TTL = 1000 * 60 * 60 * 24 * 30; // 30 ngày
 let dictV11DBPromise = null;
@@ -429,6 +429,8 @@ function buildOffline10KHTML(word, entry) {
 }
 
 async function enrichOfflineWordOnline(word, requestId, controller, resultBox) {
+    // V14: cập nhật lớp dữ liệu online lên bản Offline hiện tại; không thay thế
+    // toàn bộ kết quả bằng cache cũ trong quá trình này.
     try {
         const url = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`;
         const data = await dictV11FetchJSON(url, 4500, controller.signal);
@@ -447,6 +449,7 @@ async function enrichOfflineWordOnline(word, requestId, controller, resultBox) {
         if (slot) {
             slot.innerHTML = `<div class="dict-v11-meta" style="margin-bottom:8px;">🌐 Đã bổ sung dữ liệu online.</div>${onlineHtml}${vi ? `<div style="padding:10px;background:#e8f5e9;border-radius:7px;margin-top:8px;"><b>🇻🇳 Nghĩa:</b> ${escapeHTML(vi)}</div>` : ''}${familyHtml}`;
         }
+        // Chỉ lưu sau khi đã ghép dữ liệu online vào bản Offline.
         await dictV11Save(word, resultBox.innerHTML);
         return true;
     } catch(e) {
@@ -897,13 +900,38 @@ window.lookupWord = async function(requestedWord = '') {
     // sau đó mới bổ sung nghĩa/định nghĩa online ở chế độ nền.
     const offlineEntry = getOffline10KEntry(word);
     if (offlineEntry) {
+        // V14: luôn hiển thị bản Offline trước. Cache cũ không được phép ghi đè
+        // bản Offline ngay lập tức. Nếu đã có cache giàu dữ liệu từ lần online trước,
+        // ta dùng nó như lớp nâng cao rồi vẫn revalidate online ở nền.
         resultBox.innerHTML = buildOffline10KHTML(word, offlineEntry);
         const offlineMeta = document.createElement('div');
         offlineMeta.className = 'dict-v11-meta';
         offlineMeta.innerHTML = `<span class="cache">⚡ Offline 10K · ${window.OFFLINE_DICTIONARY_10K_COUNT || 10000} từ</span>`;
         resultBox.prepend(offlineMeta);
+
+        // Lấy cache giàu dữ liệu ở nền, nhưng chỉ chấp nhận cache V14 đã được
+        // bổ sung online (có dấu hiệu Word Family / nghĩa / dữ liệu online).
+        try {
+            const cachedRich = await dictV11Get(word);
+            if (!dictV11IsCurrent(requestId)) return;
+            const richHtml = cachedRich?.html || '';
+            const isRichCache = richHtml.includes('🌐 Đã bổ sung dữ liệu online.') ||
+                richHtml.includes('dict-family-slot') ||
+                richHtml.includes('dict-translation-slot');
+            if (cachedRich && cachedRich.fresh && isRichCache) {
+                resultBox.innerHTML = richHtml;
+                const meta = document.createElement('div');
+                meta.className = 'dict-v11-meta';
+                meta.innerHTML = `<span class="cache">⚡ Offline 10K + Cache ${cachedRich.source === 'indexeddb' ? 'IndexedDB' : 'trình duyệt'}</span>`;
+                resultBox.prepend(meta);
+            }
+        } catch (e) {}
+
+        // Luôn kiểm tra Online ở nền để bổ sung/cập nhật nghĩa, từ loại, ví dụ,
+        // synonyms và Word Family khi có Internet. Nếu mất mạng, kết quả Offline
+        // hoặc cache giàu dữ liệu vẫn được giữ nguyên.
         enrichOfflineWordOnline(word, requestId, controller, resultBox).catch(() => {});
-        // Không return: nếu cache đầy đủ đã có thì cache bên dưới vẫn được ưu tiên.
+        return;
     }
 
     // Tầng 1: bộ nhớ RAM.
