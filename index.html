@@ -98,6 +98,19 @@
             position: relative;
         }
 
+        /* V11: giao diện tra từ siêu nhanh + progressive loading */
+.dict-v11-loading { padding: 12px; text-align: center; color: #555; }
+.dict-v11-meta { margin-top: 8px; font-size: .82em; color: #777; }
+.dict-v11-meta .cache { color: #087f23; font-weight: 700; }
+.dict-v11-skeleton { display: grid; gap: 8px; margin: 8px 0; }
+.dict-v11-skeleton span { display: block; height: 12px; border-radius: 6px; background: linear-gradient(90deg,#e9ecef,#f8f9fa,#e9ecef); background-size: 200% 100%; animation: dictV11Shimmer 1.2s linear infinite; }
+.dict-v11-skeleton span:nth-child(1){width:55%;height:18px}.dict-v11-skeleton span:nth-child(2){width:85%}.dict-v11-skeleton span:nth-child(3){width:70%}
+@keyframes dictV11Shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.dict-v11-recent { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 10px 0; }
+.dict-v11-recent button { border:1px solid #bbb; background:#fff; border-radius:999px; padding:5px 10px; cursor:pointer; font-size:.86em; }
+.dict-v11-recent button:hover { background:#eef6ff; border-color:#80bdff; }
+body.dark-mode .dict-v11-recent button { background:#2d2d2d; color:#eee; border-color:#666; }
+
         /* V7: giao diện responsive + giảm repaint khi cuộn */
         *, *::before, *::after { box-sizing: border-box; }
         button, select, input { font: inherit; }
@@ -335,6 +348,7 @@
         </div>
         <div style="font-size:.9em;color:#666;margin:-4px 0 10px 2px;">💡 Hỗ trợ nhiều từ loại: <b>danh từ (noun)</b>, <b>động từ (verb)</b>, <b>tính từ (adjective)</b>, <b>trạng từ (adverb)</b>...; hiển thị định nghĩa, ví dụ, từ đồng nghĩa và phát âm.</div>
         <div style="font-size:.88em;color:#555;margin:-3px 0 10px 2px;">🎙️ <b>Kiểm tra phát âm:</b> bấm <b>🎙️ Kiểm tra</b>, cho phép micro rồi đọc đúng từ tiếng Anh. Hệ thống sẽ nhận giọng nói và chấm mức độ khớp với từ mẫu.</div>
+        <div id="dict-recent" class="dict-v11-recent" aria-label="Từ tra gần đây"></div>
         <div id="dict-result" class="dict-rich-result" style="max-height: 520px; overflow-y: auto; background: #f8f9fa; padding: 12px; border-radius: 8px; border: 1px solid #ddd; font-size: 1.05em;">
             Nhập từ và bấm "Tra" để xem đầy đủ nghĩa, từ loại, ví dụ...
         </div>
