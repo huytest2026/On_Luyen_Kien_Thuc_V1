@@ -389,7 +389,7 @@ window.closeDictionaryModal = function() {
 // Memory -> IndexedDB -> localStorage fallback
 // Progressive loading + stale-while-revalidate
 // ==========================================
-const DICT_V11_CACHE_VERSION = 'v12-ipa';
+const DICT_V11_CACHE_VERSION = 'v13-offline-10k-ipa';
 const DICT_V11_DB_NAME = 'EnglishDictionaryCacheV11';
 const DICT_V11_STORE = 'entries';
 const DICT_V11_TTL = 1000 * 60 * 60 * 24 * 30; // 30 ngày
@@ -397,6 +397,61 @@ let dictV11DBPromise = null;
 
 function dictV11NormalizeWord(value) {
     return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+
+// ==========================================
+// V13 OFFLINE DICTIONARY – 10.000 TỪ
+// Offline-first: từ + IPA có sẵn; nghĩa/định nghĩa online sẽ được bổ sung khi có mạng.
+// ==========================================
+function getOffline10KEntry(word) {
+    const key = dictV11NormalizeWord(word);
+    const db = window.OFFLINE_DICTIONARY_10K;
+    if (!db || !key) return null;
+    return db[key] || null;
+}
+
+function buildOffline10KHTML(word, entry) {
+    const ipa = entry?.ipa || '';
+    return `
+        <div class="dict-offline-card" style="background:#eef7ff;border:1px solid #b8d8f0;border-radius:10px;padding:14px;margin-bottom:10px;">
+            <div class="dict-word-head" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <b style="font-size:1.45em;color:#540606;">${escapeHTML(word)}</b>
+                <span style="font-size:.82em;background:#dff1ff;color:#145a86;padding:4px 8px;border-radius:999px;">⚡ OFFLINE 10K</span>
+                ${speechButtonHTML(word)}
+            </div>
+            ${ipa ? `<div style="margin-top:9px;font-size:1.12em;"><b>🔤 IPA:</b> <code style="font-size:1.1em;">${escapeHTML(ipa)}</code></div>` : ''}
+            <div style="margin-top:10px;color:#555;font-size:.92em;">
+                📚 Từ này có trong kho offline 10.000 từ. Phiên âm có thể xem và luyện phát âm ngay cả khi không có Internet.
+            </div>
+            <div id="dict-offline-online-slot" style="margin-top:12px;"></div>
+        </div>`;
+}
+
+async function enrichOfflineWordOnline(word, requestId, controller, resultBox) {
+    try {
+        const url = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`;
+        const data = await dictV11FetchJSON(url, 4500, controller.signal);
+        if (!dictV11IsCurrent(requestId) || !Array.isArray(data) || !data.length) return false;
+        const entries = data;
+        const onlineHtml = buildDictionaryBaseHTML(entries, word);
+        const transUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(word)}&langpair=en|vi`;
+        let vi = '';
+        try {
+            const td = await dictV11FetchJSON(transUrl, 2500, controller.signal);
+            vi = td?.responseData?.translatedText || '';
+        } catch(e) {}
+        const familyHtml = await renderWordFamily(word).catch(() => '');
+        if (!dictV11IsCurrent(requestId)) return false;
+        const slot = resultBox.querySelector('#dict-offline-online-slot');
+        if (slot) {
+            slot.innerHTML = `<div class="dict-v11-meta" style="margin-bottom:8px;">🌐 Đã bổ sung dữ liệu online.</div>${onlineHtml}${vi ? `<div style="padding:10px;background:#e8f5e9;border-radius:7px;margin-top:8px;"><b>🇻🇳 Nghĩa:</b> ${escapeHTML(vi)}</div>` : ''}${familyHtml}`;
+        }
+        await dictV11Save(word, resultBox.innerHTML);
+        return true;
+    } catch(e) {
+        return false;
+    }
 }
 
 function dictV11OpenDB() {
@@ -838,6 +893,19 @@ window.lookupWord = async function(requestedWord = '') {
     const controller = new AbortController();
     AppState.dictionaryAbortController = controller;
 
+    // V13: Offline-first. Nếu có trong kho 10K, hiển thị IPA ngay lập tức,
+    // sau đó mới bổ sung nghĩa/định nghĩa online ở chế độ nền.
+    const offlineEntry = getOffline10KEntry(word);
+    if (offlineEntry) {
+        resultBox.innerHTML = buildOffline10KHTML(word, offlineEntry);
+        const offlineMeta = document.createElement('div');
+        offlineMeta.className = 'dict-v11-meta';
+        offlineMeta.innerHTML = `<span class="cache">⚡ Offline 10K · ${window.OFFLINE_DICTIONARY_10K_COUNT || 10000} từ</span>`;
+        resultBox.prepend(offlineMeta);
+        enrichOfflineWordOnline(word, requestId, controller, resultBox).catch(() => {});
+        // Không return: nếu cache đầy đủ đã có thì cache bên dưới vẫn được ưu tiên.
+    }
+
     // Tầng 1: bộ nhớ RAM.
     const memoryHtml = AppState.dictionaryCache.get(cleanKey(word));
     if (typeof memoryHtml === 'string' && memoryHtml) {
@@ -863,8 +931,12 @@ window.lookupWord = async function(requestedWord = '') {
         return;
     }
 
+    // Nếu có bản offline, đã hiển thị ngay; tiếp tục gọi API nền nhưng không hiển thị skeleton lần nữa.
+    const hasOfflinePreview = !!offlineEntry;
+    if (!hasOfflinePreview) {
     // Tầng 3: API. Chỉ chờ Dictionary API để có kết quả chính.
     resultBox.innerHTML = `<div class="dict-v11-loading"><b>🔎 Đang tra ${escapeHTML(word)}...</b><div class="dict-v11-skeleton"><span></span><span></span><span></span></div></div>`;
+    }
 
     const dictUrl = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`;
     let data = null;
@@ -872,7 +944,12 @@ window.lookupWord = async function(requestedWord = '') {
         data = await dictV11FetchJSON(dictUrl, 5000, controller.signal);
     } catch (e) {
         if (!dictV11IsCurrent(requestId)) return;
-        // Fallback chỉ khi Dictionary API không trả lời.
+        // Fallback chỉ khi Dictionary API không trả lời. Nếu đã có offline preview, giữ nguyên và báo trạng thái.
+        if (offlineEntry) {
+            const slot = resultBox.querySelector('#dict-offline-online-slot');
+            if (slot) slot.innerHTML = '<div class="dict-v11-meta">📴 Không có Internet: đang dùng dữ liệu offline 10K (IPA + phát âm).</div>';
+            return;
+        }
         try {
             const transUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(word)}&langpair=en|vi`;
             const transData = await dictV11FetchJSON(transUrl, 3000, controller.signal);
