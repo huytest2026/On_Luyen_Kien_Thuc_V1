@@ -1,5 +1,4 @@
 const API_URL = "https://script.google.com/macros/s/AKfycbxByXvzJFoK6N0jToFqXj1pEMBnGkMyoa7J5r7vEScJTr-ZSOfSw8Wdv8pPg5EyBg/exec";
-
 let AppState = {
     allQuizData: [],
     userPermissions: [],
@@ -1301,24 +1300,34 @@ window.saveUserSelections = function() {
 };
 
 window.restoreUserSelections = function() {
-    const savedMon = localStorage.getItem('saved_mon');
     const subjectSelect = document.getElementById('subject-select');
-    if (savedMon && subjectSelect) {
-        subjectSelect.value = savedMon;
-        window.handleSubjectChange();
-        
-        const maHS = document.getElementById('student-code') ? document.getElementById('student-code').value.trim() : '';
-        const savedTopics = localStorage.getItem('saved_topics_' + maHS + '_' + savedMon);
-        if (savedTopics) {
-            try {
-                let topicsArray = JSON.parse(savedTopics);
-                setTimeout(() => {
-                    document.querySelectorAll('input[name="topic"]').forEach(cb => {
-                        cb.checked = topicsArray.includes(cb.value);
-                    });
-                }, 200);
-            } catch(e) {}
+    if (!subjectSelect) return;
+
+    // V21: Nếu initInterface đã tự chọn Tiếng Anh thì KHÔNG để saved_mon cũ ghi đè.
+    // saved_mon chỉ được dùng làm dự phòng khi giao diện chưa có môn được chọn.
+    let activeMon = subjectSelect.value || '';
+    if (!activeMon) {
+        const savedMon = localStorage.getItem('saved_mon');
+        if (savedMon && Array.from(subjectSelect.options).some(option => option.value === savedMon)) {
+            subjectSelect.value = savedMon;
+            activeMon = savedMon;
+            window.handleSubjectChange();
         }
+    }
+
+    if (!activeMon) return;
+
+    const maHS = document.getElementById('student-code') ? document.getElementById('student-code').value.trim() : '';
+    const savedTopics = localStorage.getItem('saved_topics_' + maHS + '_' + activeMon);
+    if (savedTopics) {
+        try {
+            let topicsArray = JSON.parse(savedTopics);
+            setTimeout(() => {
+                document.querySelectorAll('input[name="topic"]').forEach(cb => {
+                    cb.checked = topicsArray.includes(cb.value);
+                });
+            }, 200);
+        } catch(e) {}
     }
 };
 
@@ -1693,7 +1702,7 @@ window.handleSubjectChange = function() {
 };
 
 // ============================================================
-// V20 INDEPENDENT PERMISSION LAYER
+// V21 INDEPENDENT PERMISSION LAYER
 //
 // NHÁNH 1: HỌC THEO CHỦ ĐỀ
 //   UserPermissions: Mã học sinh | Môn | Chủ đề
@@ -1826,7 +1835,7 @@ window.updateTopicList = function() {
     const container = document.getElementById('topic-container');
     if (!container) return;
 
-    console.log('🔐 V20 phân quyền chủ đề:', { maHS, monSelect, permissions: AppState.userPermissions });
+    console.log('🔐 V21 phân quyền chủ đề:', { maHS, monSelect, permissions: AppState.userPermissions });
 
     if (!monSelect || !maHS) {
         container.innerHTML = '<i style="color: #d9534f;">Vui lòng nhập Mã học sinh và chọn môn.</i>';
@@ -1866,12 +1875,23 @@ window.toggleAllTopics = function() {
     window.saveUserSelections();
 };
 
+// V21: Khi khởi động giao diện, ưu tiên tự chọn Tiếng Anh.
+// Nếu học sinh không có quyền Tiếng Anh thì tự chọn môn đầu tiên được cấp quyền.
+function getDefaultSubjectForStudent(allowedSubjects) {
+    const english = (allowedSubjects || []).find(subject =>
+        cleanKey(subject) === cleanKey('Tiếng Anh') ||
+        cleanKey(subject).includes('english') ||
+        cleanKey(subject).includes('tienganh')
+    );
+    return english || ((allowedSubjects && allowedSubjects[0]) ? allowedSubjects[0] : '');
+}
+
 window.initInterface = function() {
     const subjectSelect = document.getElementById('subject-select');
     const maHS = document.getElementById('student-code') ? document.getElementById('student-code').value.trim() : '';
 
     if (subjectSelect) {
-        console.log('🔐 V20 khởi tạo phân quyền độc lập:', {
+        console.log('🔐 V21 khởi tạo phân quyền độc lập:', {
             maHS,
             topicPermissions: AppState.userPermissions,
             madePermissions: AppState.madePermissions
@@ -1880,12 +1900,21 @@ window.initInterface = function() {
         // Một Môn được hiển thị nếu học sinh có quyền ở ÍT NHẤT một trong hai nhánh:
         // UserPermissions hoặc MadePermissions.
         const allowedSubjects = getAllowedSubjectsForStudent(maHS);
+        const defaultSubject = getDefaultSubjectForStudent(allowedSubjects);
 
         subjectSelect.innerHTML = '<option value="">-- Chọn môn --</option>' +
             allowedSubjects.map(s => '<option value="' + escapeHTML(s) + '">' + escapeHTML(s) + '</option>').join('');
+
+        // Khởi động mặc định bằng Tiếng Anh, không bắt học sinh phải chọn lại.
+        // Nếu không có quyền Tiếng Anh thì dùng môn đầu tiên được cấp quyền.
+        subjectSelect.value = defaultSubject;
+
+        if (defaultSubject) {
+            window.handleSubjectChange();
+        }
     }
 
-    window.renderLeaderboard();
+    window.renderLeaderboard(subjectSelect ? subjectSelect.value : '');
     window.updateTopicList();
     window.updateMadeList();
     window.restoreUserSelections();
@@ -1981,7 +2010,7 @@ window.handleQuizData = function(data, fromSessionCache = false) {
             made: String(p.made || p.maDe || p.MADE || p[2] || '').trim()
         })).filter(p => p.maHS !== '' && p.mon !== '' && p.made !== '');
 
-        console.log('🔐 V20 quyền đã nhận:', {
+        console.log('🔐 V21 quyền đã nhận:', {
             topicPermissions: AppState.userPermissions.length,
             madePermissions: AppState.madePermissions.length
         });
