@@ -1681,42 +1681,100 @@ window.handleSubjectChange = function() {
     window.saveUserSelections();
 };
 
+// ============================================================
+// V16 PERMISSION LAYER
+// Một dòng phân quyền có thể chứa nhiều mã học sinh, ví dụ:
+// Huy,Bảo,Lan | Tiếng Anh | WHAT & HOW
+// ============================================================
+function normalizePermissionValue(value) {
+    return String(value == null ? '' : value)
+        .trim()
+        .toLocaleLowerCase('vi-VN');
+}
+
+function isStudentAllowed(permissionStudentList, studentCode) {
+    const currentStudent = normalizePermissionValue(studentCode);
+    if (!currentStudent) return false;
+
+    return String(permissionStudentList == null ? '' : permissionStudentList)
+        .split(',')
+        .map(code => normalizePermissionValue(code))
+        .filter(Boolean)
+        .includes(currentStudent);
+}
+
+function getStudentPermissions(maHS, mon) {
+    const cleanMon = cleanKey(mon || '');
+    return (Array.isArray(AppState.userPermissions) ? AppState.userPermissions : [])
+        .filter(p =>
+            isStudentAllowed(p.maHS, maHS) &&
+            cleanKey(p.mon || '') === cleanMon
+        );
+}
+
+function getAllowedPermissionValues(maHS, mon) {
+    return [...new Set(
+        getStudentPermissions(maHS, mon)
+            .map(p => String(p.chuDe == null ? '' : p.chuDe).trim())
+            .filter(Boolean)
+    )];
+}
+
 window.updateMadeList = function() {
     const monSelect = document.getElementById('subject-select') ? document.getElementById('subject-select').value.trim() : '';
+    const maHS = document.getElementById('student-code') ? document.getElementById('student-code').value.trim() : '';
     const madeSelect = document.getElementById('made-select');
-    if (!madeSelect || !monSelect) return;
+    if (!madeSelect) return;
+
+    if (!monSelect || !maHS) {
+        madeSelect.innerHTML = '<option value="">-- Chọn mã đề --</option>';
+        return;
+    }
 
     const cleanMonSelect = cleanKey(monSelect);
+    const allowedValues = getAllowedPermissionValues(maHS, monSelect);
+    const allowedMadeKeys = new Set(allowedValues.map(v => cleanKey(v)));
+
     const mades = [...new Set(AppState.allQuizData
-        .filter(i => cleanKey(i.mon) === cleanMonSelect && i.made && String(i.made).trim() !== '')
+        .filter(i =>
+            cleanKey(i.mon) === cleanMonSelect &&
+            i.made &&
+            String(i.made).trim() !== '' &&
+            allowedMadeKeys.has(cleanKey(String(i.made).trim()))
+        )
         .map(i => String(i.made).trim())
     )].filter(Boolean);
 
-    madeSelect.innerHTML = '<option value="">-- Chọn mã đề --</option>' + mades.map(m => '<option value="' + escapeHTML(m) + '">Mã đề: ' + escapeHTML(m) + '</option>').join('');
+    madeSelect.innerHTML = '<option value="">-- Chọn mã đề --</option>' +
+        mades.map(m => '<option value="' + escapeHTML(m) + '">Mã đề: ' + escapeHTML(m) + '</option>').join('');
 };
 
 window.updateTopicList = function() {
     const monSelect = document.getElementById('subject-select') ? document.getElementById('subject-select').value.trim() : '';
-    const maHS = document.getElementById('student-code').value.trim();
+    const maHS = document.getElementById('student-code') ? document.getElementById('student-code').value.trim() : '';
     const container = document.getElementById('topic-container');
-    if (!container || !monSelect) return;
+    if (!container) return;
 
-    const cleanMonSelect = cleanKey(monSelect);
-
-    const allowed = AppState.userPermissions
-        .filter(p => String(p.maHS).trim() === maHS && cleanKey(p.mon) === cleanMonSelect)
-        .map(p => String(p.chuDe).trim());
-
-    const topics = [...new Set(AppState.allQuizData
-        .filter(i => cleanKey(i.mon) === cleanMonSelect && i.question !== '')
-        .map(i => i.chuDe))].filter(Boolean);
-
-    if (topics.length === 0) {
-        container.innerHTML = "Không tìm thấy chủ đề cho môn này.";
+    if (!monSelect || !maHS) {
+        container.innerHTML = '<i style="color: #d9534f;">Vui lòng nhập Mã học sinh và chọn môn.</i>';
         return;
     }
 
-    const authorizedTopics = topics.filter(topic => allowed.includes(topic));
+    const cleanMonSelect = cleanKey(monSelect);
+    const allowedValues = getAllowedPermissionValues(maHS, monSelect);
+    const allowedTopicKeys = new Set(allowedValues.map(v => cleanKey(v)));
+
+    const topics = [...new Set(AppState.allQuizData
+        .filter(i => cleanKey(i.mon) === cleanMonSelect && i.question !== '')
+        .map(i => String(i.chuDe == null ? '' : i.chuDe).trim())
+    )].filter(Boolean);
+
+    if (topics.length === 0) {
+        container.innerHTML = 'Không tìm thấy chủ đề cho môn này.';
+        return;
+    }
+
+    const authorizedTopics = topics.filter(topic => allowedTopicKeys.has(cleanKey(topic)));
 
     if (authorizedTopics.length === 0) {
         container.innerHTML = '<i style="color: #d9534f;">Bạn chưa được phân quyền chủ đề nào cho môn này.</i>';
@@ -1738,10 +1796,21 @@ window.toggleAllTopics = function() {
 
 window.initInterface = function() {
     const subjectSelect = document.getElementById('subject-select');
+    const maHS = document.getElementById('student-code') ? document.getElementById('student-code').value.trim() : '';
+
     if (subjectSelect) {
-        const subjects = [...new Set(AppState.allQuizData.map(i => i.mon).filter(s => s && cleanKey(s) !== 'id'))];
-        subjectSelect.innerHTML = '<option value="">-- Chọn môn --</option>' + subjects.map(s => '<option value="' + escapeHTML(s) + '">' + escapeHTML(s) + '</option>').join('');
+        // Chỉ hiển thị môn mà học sinh hiện tại có ít nhất một dòng phân quyền.
+        const allowedSubjects = [...new Set(
+            (Array.isArray(AppState.userPermissions) ? AppState.userPermissions : [])
+                .filter(p => isStudentAllowed(p.maHS, maHS))
+                .map(p => String(p.mon == null ? '' : p.mon).trim())
+                .filter(s => s && cleanKey(s) !== 'id')
+        )];
+
+        subjectSelect.innerHTML = '<option value="">-- Chọn môn --</option>' +
+            allowedSubjects.map(s => '<option value="' + escapeHTML(s) + '">' + escapeHTML(s) + '</option>').join('');
     }
+
     window.renderLeaderboard();
     window.updateTopicList();
     window.updateMadeList();
