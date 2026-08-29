@@ -1,5 +1,3 @@
-
-
 const API_URL = "https://script.google.com/macros/s/AKfycbxByXvzJFoK6N0jToFqXj1pEMBnGkMyoa7J5r7vEScJTr-ZSOfSw8Wdv8pPg5EyBg/exec";
 
 let AppState = {
@@ -17,7 +15,137 @@ let AppState = {
     questionIndex: { bySubject: new Map(), bySubjectTopic: new Map(), bySubjectMade: new Map() },
     dictionaryCache: new Map(),
     dictionaryRequestId: 0,
-    dictionaryAbortController: null
+    dictionaryAbortController: null,
+
+    // V15 SPEED: Load Once - Reuse Many Times
+    dataLoaded: false,
+    loadedForMaHS: '',
+    dataSource: '',
+    dataLoadedAt: 0,
+    submitInProgress: false
+};
+
+// ============================================================
+// V15 SPEED LAYER - LOAD ONCE / REUSE MANY TIMES
+// ============================================================
+const QUIZ_SESSION_CACHE_PREFIX = 'QUIZ_DATA_CACHE_V15_';
+const QUIZ_SESSION_CACHE_MAX_CHARS = 3500000;
+
+function getQuizCacheKey(maHS) {
+    return QUIZ_SESSION_CACHE_PREFIX + encodeURIComponent(String(maHS || '').trim().toLowerCase());
+}
+
+function saveQuizSessionCache(maHS, data) {
+    try {
+        const payload = JSON.stringify({
+            version: 15,
+            savedAt: Date.now(),
+            maHS: String(maHS || '').trim(),
+            data: data
+        });
+        // sessionStorage has limited capacity. If the dataset is too large,
+        // memory cache still works normally and we simply skip persistent cache.
+        if (payload.length > QUIZ_SESSION_CACHE_MAX_CHARS) return false;
+        sessionStorage.setItem(getQuizCacheKey(maHS), payload);
+        return true;
+    } catch (e) {
+        console.warn('⚠️ Không lưu được cache phiên:', e);
+        return false;
+    }
+}
+
+function getQuizSessionCache(maHS) {
+    try {
+        const raw = sessionStorage.getItem(getQuizCacheKey(maHS));
+        if (!raw) return null;
+        const obj = JSON.parse(raw);
+        if (!obj || obj.version !== 15 || !obj.data) return null;
+        return obj.data;
+    } catch (e) {
+        return null;
+    }
+}
+
+function clearQuizSessionCache(maHS) {
+    try {
+        if (maHS) sessionStorage.removeItem(getQuizCacheKey(maHS));
+    } catch (e) {}
+}
+
+function formatLocalDateTime(date = new Date()) {
+    const pad = n => String(n).padStart(2, '0');
+    return pad(date.getDate()) + '/' + pad(date.getMonth() + 1) + '/' + date.getFullYear() +
+        ' ' + pad(date.getHours()) + ':' + pad(date.getMinutes()) + ':' + pad(date.getSeconds());
+}
+
+function addLocalRankingAfterSubmit(maHS, score, mon, level, chuDe) {
+    if (!maHS) return;
+    const normalizedSubject = standardizeSubject(mon || '');
+    AppState.rankings = Array.isArray(AppState.rankings) ? AppState.rankings : [];
+    AppState.rankings.push({
+        name: String(maHS).trim(),
+        score: Number(score) || 0,
+        subject: normalizedSubject,
+        level: String(level || 1),
+        chuDe: String(chuDe || ''),
+        date: formatLocalDateTime()
+    });
+
+    // Cập nhật bảng xếp hạng ngay trên máy, không cần GET lại toàn bộ dữ liệu.
+    try {
+        if (typeof window.renderLeaderboard === 'function') {
+            const subjectSelect = document.getElementById('subject-select');
+            window.renderLeaderboard(subjectSelect ? subjectSelect.value : normalizedSubject);
+        }
+    } catch (e) {}
+}
+
+window.startNewQuizWithoutReload = function() {
+    clearInterval(AppState.timerInterval);
+    AppState.timerInterval = null;
+    window.removeEventListener('beforeunload', handleBeforeUnload);
+
+    AppState.quizSubmitted = false;
+    AppState.submitInProgress = false;
+    AppState.correctCount = 0;
+    AppState.wrongCount = 0;
+    AppState.wrongQuestions = [];
+    AppState.currentQuizData = [];
+
+    const resultContainer = document.getElementById('result-container');
+    if (resultContainer) resultContainer.remove();
+
+    const mathCustomContainer = document.getElementById('math-custom-container');
+    if (mathCustomContainer) {
+        mathCustomContainer.style.display = 'none';
+        mathCustomContainer.innerHTML = '';
+    }
+
+    const quizScreen = document.getElementById('quiz-screen');
+    if (quizScreen) quizScreen.style.display = 'none';
+
+    const startScreen = document.getElementById('start-screen');
+    if (startScreen) startScreen.style.display = 'block';
+
+    const quizContainer = document.getElementById('quiz');
+    if (quizContainer) quizContainer.innerHTML = '';
+
+    const studentInput = document.getElementById('student-code');
+    const maHS = studentInput ? studentInput.value.trim() : (localStorage.getItem('saved_maHS') || '');
+    if (maHS) localStorage.setItem('saved_maHS', maHS);
+
+    // Quan trọng: KHÔNG gọi loadData(). Dữ liệu câu hỏi/quyền/xếp hạng
+    // vẫn nằm trong AppState và được tái sử dụng ngay lập tức.
+    if (AppState.dataLoaded && AppState.allQuizData.length > 0) {
+        try {
+            window.initInterface();
+            window.restoreUserSelections();
+        } catch (e) {
+            console.warn('Không thể khôi phục giao diện từ RAM:', e);
+        }
+    }
+
+    window.scrollTo({ top: 0, behavior: 'instant' });
 };
 
 // Hàm chặn tắt/đóng/load lại trang khi đang làm bài
@@ -1620,33 +1748,51 @@ window.initInterface = function() {
     window.restoreUserSelections();
 };
 
-window.loadData = function() {
+window.loadData = function(forceRefresh = false) {
     if (AppState.dataLoading) return;
     const maHS = document.getElementById('student-code').value.trim();
     if (!maHS) return alert("Vui lòng nhập mã học sinh!");
-    
+
     const oldMa = localStorage.getItem('saved_maHS');
     if (oldMa !== maHS) {
         localStorage.removeItem('saved_mon');
     }
     localStorage.setItem('saved_maHS', maHS);
 
+    // 1) Nếu dữ liệu của đúng mã học sinh đã có trong RAM -> dùng ngay.
+    if (!forceRefresh && AppState.dataLoaded && AppState.loadedForMaHS === maHS && AppState.allQuizData.length > 0) {
+        console.log('⚡ Load Once: sử dụng dữ liệu đang có trong RAM, không tải lại.');
+        window.initInterface();
+        window.restoreUserSelections();
+        return;
+    }
+
+    // 2) Nếu có cache trong sessionStorage -> hiển thị ngay, không chờ mạng.
+    if (!forceRefresh) {
+        const cachedData = getQuizSessionCache(maHS);
+        if (cachedData && cachedData.questions && cachedData.questions.length > 0) {
+            console.log('⚡ Load Once: sử dụng dữ liệu cache của phiên.');
+            window.handleQuizData(cachedData, true);
+            return;
+        }
+    }
+
     const container = document.getElementById('topic-container');
-    if (container) container.innerHTML = "Đang tải dữ liệu...";
+    if (container) container.innerHTML = "Đang tải dữ liệu lần đầu...";
 
     AppState.dataLoading = true;
     const script = document.createElement('script');
     script.src = API_URL + '?ma=' + encodeURIComponent(maHS) + '&callback=handleQuizData';
-    script.onerror = () => { 
+    script.onerror = () => {
         AppState.dataLoading = false;
-        script.remove(); 
-        if (container) container.innerHTML = "Lỗi kết nối mạng khi tải dữ liệu."; 
+        script.remove();
+        if (container) container.innerHTML = "Lỗi kết nối mạng khi tải dữ liệu.";
     };
     document.body.appendChild(script);
     script.onload = () => { AppState.dataLoading = false; script.remove(); };
 };
 
-window.handleQuizData = function(data) {
+window.handleQuizData = function(data, fromSessionCache = false) {
     if (data && !data.error && data.questions && data.questions.length > 0) {
         let lastMon = '', lastChuDe = '', lastLevel = '', lastLoai = '', lastPassage = '', lastMade = '';
 
@@ -1729,6 +1875,17 @@ window.handleQuizData = function(data) {
                     AppState.rankings.push(item);
                 }
             });
+        }
+
+        AppState.dataLoaded = true;
+        AppState.loadedForMaHS = document.getElementById('student-code') ? document.getElementById('student-code').value.trim() : (localStorage.getItem('saved_maHS') || '');
+        AppState.dataSource = fromSessionCache ? 'sessionStorage' : 'network';
+        AppState.dataLoadedAt = Date.now();
+
+        // Lưu bản dữ liệu gốc để lần sau trong cùng tab có thể dùng ngay.
+        // Không ảnh hưởng đến AppState đang chạy trong RAM.
+        if (!fromSessionCache && AppState.loadedForMaHS) {
+            saveQuizSessionCache(AppState.loadedForMaHS, data);
         }
 
         window.initInterface();
@@ -2482,6 +2639,10 @@ if (!submitChuDe || submitChuDe === "") {
     submitChuDe = "Đề tổng hợp Toán (21 câu)";
 }
 
+// Cập nhật bảng xếp hạng cục bộ ngay lập tức.
+// Không cần tải lại rankings từ Google Sheets sau khi nộp bài.
+addLocalRankingAfterSubmit(maHS, score, submitMon, level || 1, submitChuDe);
+
 // 2. Chỉ cần có Mã học sinh (maHS) là BẮT BUỘC gửi về Google Sheets
 if (maHS) {
     fetch(API_URL, {
@@ -2527,7 +2688,7 @@ if (maHS) {
         '<p style="font-size: 1.2em; text-align: center;">Số câu hỏi đúng: <b>' + AppState.correctCount + ' / ' + totalQuestions + '</b></p>' +
         '<p style="font-size: 1.4em; text-align: center; font-weight: bold;">Điểm số: ' + score + ' đ</p>' +
         '<div style="display: flex; gap: 12px; margin-top: 20px;">' +
-        '<button type="button" onclick="window.location.reload()" style="flex: 1; padding: 14px; background: #007bff; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 1.05em;">Làm bài mới</button>' +
+        '<button type="button" onclick="window.startNewQuizWithoutReload()" style="flex: 1; padding: 14px; background: #007bff; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 1.05em;">Làm bài mới</button>' +
         '<button type="button" onclick="window.viewReviewDetails()" style="flex: 1; padding: 14px; background: #6c757d; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 1.05em;">🔍 Xem lại chi tiết</button>' +
         '</div>' +
         '<div id="review-detail-box" style="margin-top: 20px;"></div>';
@@ -3016,46 +3177,18 @@ document.addEventListener('DOMContentLoaded', () => {
             newBtn.innerText = "Đang tải dữ liệu trực tiếp...";
             newBtn.disabled = true;
 
-            let dataList = null;
+            // V15: dùng ngân hàng câu hỏi đã tải trong AppState, không fetch lần nữa.
+            let dataList = (window.AppState && Array.isArray(AppState.allQuizData)) ? AppState.allQuizData : [];
 
-            try {
-                let webAppUrl = "https://script.google.com/macros/s/AKfycbw0wLQ2xlqyiaNHtOa-ttWqvvihNl-CvXxenUXW2iK7t8lD-7-Bbz24V8WtP-SjFUif/exec"; 
-                
-                let response = await fetch(webAppUrl);
-                let result = await response.json();
-                dataList = result.questions || result.data || result;
-            } catch (err) {
-                console.error("Lỗi fetch:", err);
-            }
-
-            if (!dataList || dataList.length <= 1) {
-                alert("Không thể tải được dữ liệu trực tiếp. Hãy kiểm tra lại link Web App Google Sheets trong code!");
+            if (!dataList || dataList.length === 0) {
+                alert("Dữ liệu câu hỏi chưa được tải. Vui lòng bấm 'Xác nhận Mã & Tải đề' trước!");
                 resetBtn();
                 return;
             }
 
-            if (Array.isArray(dataList[0])) {
-                let headers = dataList[0];
-                let formattedList = [];
-                for (let i = 1; i < dataList.length; i++) {
-                    let row = dataList[i];
-                    let obj = {};
-                    for (let j = 0; j < headers.length; j++) {
-                        obj[headers[j]] = row[j];
-                    }
-                    formattedList.push(obj);
-                }
-                dataList = formattedList;
-            }
-
-            let filteredPool = dataList.filter(q => {
-                let m = q['Môn'] || q['mon'] || "";
-                return m.toString().trim().toLowerCase() === "toán";
-            });
-
-            if (filteredPool.length === 0) {
-                filteredPool = dataList;
-            }
+            // Chuyển về cấu trúc thống nhất của AppState.
+            let filteredPool = dataList.filter(q => cleanKey(q.mon || '') === cleanKey('Toán'));
+            if (filteredPool.length === 0) filteredPool = dataList;
 
             let cauHinh = {
                 'Hình học': 2,
@@ -3147,11 +3280,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 <h2 style="text-align: center; color: #b71c1c; margin-bottom: 20px;">ĐỀ TỔNG HỢP TOÁN (21 CÂU)</h2>`;
 
             selectedQuestions.forEach((q, index) => {
-                let qText = q['Nội dung câu hỏi'] || q['Câu hỏi'] || q['question'] || "";
-                let a = q['Đáp án A'] || "";
-                let b = q['Đáp án B'] || "";
-                let c = q['Đáp án C'] || "";
-                let d = q['Đáp án D'] || "";
+                let qText = q.question || q['Nội dung câu hỏi'] || q['Câu hỏi'] || "";
+                let a = q.a || q['Đáp án A'] || "";
+                let b = q.b || q['Đáp án B'] || "";
+                let c = q.c || q['Đáp án C'] || "";
+                let d = q.d || q['Đáp án D'] || "";
 
                 htmlContent += `
                     <div class="question-card" id="q_card_${index}" style="background: white; border: 2px solid #dcdcdc; border-radius: 8px; padding: 15px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
@@ -3167,8 +3300,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
             htmlContent += `<button id="custom-submit-btn" style="display: block; width: 100%; padding: 12px; background: #2e7d32; color: white; font-size: 18px; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; margin-top: 20px;">Nộp bài tổng kết</button></div>`;
 
-            let containerTarget = document.querySelector('#quiz-view') || document.body;
+            let containerTarget = document.getElementById('math-custom-container') || document.querySelector('#quiz-view') || document.body;
             containerTarget.innerHTML = htmlContent;
+            if (containerTarget.id === 'math-custom-container') {
+                containerTarget.style.display = 'block';
+                const mainStartScreen = document.getElementById('start-screen');
+                if (mainStartScreen) mainStartScreen.style.display = 'none';
+            }
 
             // Xử lý kéo thả (Draggable)
             const calcModal = document.getElementById('calc-modal');
@@ -3195,7 +3333,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Nút Trang chủ
             document.getElementById('btn-home').addEventListener('click', () => {
-                location.reload();
+                window.startNewQuizWithoutReload();
             });
 
             // Hàm mở/đóng máy tính
@@ -3243,7 +3381,8 @@ document.addEventListener('DOMContentLoaded', () => {
             let scoreSai = 0;
 
             selectedQuestions.forEach((q, index) => {
-                let correctAns = (q['Đáp án đúng'] || "").toString().trim().toUpperCase();
+                let correctRaw = q.correct || q['Đáp án đúng'] || "";
+                let correctAns = correctRaw.toString().trim().toUpperCase();
                 let radios = document.querySelectorAll(`input[name="question_${index}"]`);
 
                 radios.forEach(radio => {
@@ -3277,8 +3416,33 @@ document.addEventListener('DOMContentLoaded', () => {
 
             document.getElementById('custom-submit-btn').addEventListener('click', () => {
                 if (window.timerInterval) clearInterval(window.timerInterval);
-                alert(`Bạn đã hoàn thành bài thi!\n- Số câu đúng: ${scoreDung}\n- Số câu sai: ${scoreSai}`);
-                location.reload();
+
+                const maHS = document.getElementById('student-code')?.value.trim() || localStorage.getItem('saved_maHS') || '';
+                const customTotal = selectedQuestions.length || 21;
+                const customScore = Math.round((scoreDung / customTotal) * 10 * 10) / 10;
+
+                // Gửi kết quả đề tổng hợp lên Google Sheets nhưng KHÔNG tải lại dữ liệu.
+                if (maHS) {
+                    fetch(API_URL, {
+                        method: 'POST',
+                        mode: 'no-cors',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            maHS: maHS,
+                            mon: 'Toán',
+                            score: customScore,
+                            level: 1,
+                            chuDe: 'Đề tổng hợp Toán (21 câu)',
+                            made: 'Đề tổng hợp',
+                            details: []
+                        })
+                    }).catch(err => console.log('❌ Lỗi gửi kết quả đề tổng hợp:', err));
+
+                    addLocalRankingAfterSubmit(maHS, customScore, 'Toán', 1, 'Đề tổng hợp Toán (21 câu)');
+                }
+
+                alert(`Bạn đã hoàn thành bài thi!\n- Số câu đúng: ${scoreDung}\n- Số câu sai: ${scoreSai}\n- Điểm: ${customScore} đ`);
+                window.startNewQuizWithoutReload();
             });
 
             let timeLeft = 30 * 60;
