@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bài Kiểm Tra Toán Anh - V22 Professional Learning</title>
+    <title>Bài Kiểm Tra Toán Anh - V14 Offline Dictionary 10K</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 20px; background-color: #e8eded; font-size: 1.05em; }
         .container { background-color: #bbe9f0; padding: 25px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); max-width: 650px; margin: auto; position: relative; }
@@ -213,113 +213,70 @@ body.dark-mode .dict-v11-recent button { background:#2d2d2d; color:#eee; border-
 <body>
 
 <div class="container" id="start-screen">
-    <!-- V22 PROFESSIONAL LEARNING DASHBOARD: giữ nguyên toàn bộ ID và handler cũ -->
-    <section class="v22-hero">
-        <div class="v22-brand">
-            <div class="v22-brand-icon">🎓</div>
-            <div>
-                <div class="v22-eyebrow">NỀN TẢNG LUYỆN TẬP</div>
-                <h1>Bài Kiểm Tra Toán Anh</h1>
-                <p>Học tập • Luyện đề • Theo dõi thành tích</p>
-            </div>
-        </div>
-        <button type="button" id="dark-mode-toggle-btn" class="v22-theme-btn">🌙 Tối</button>
-    </section>
-
-    <div class="v22-tool-grid">
-        <button type="button" class="v22-tool-btn v22-calc" onclick="window.openCalculatorModal()">🧮 <span>Máy tính</span></button>
-        <button type="button" class="v22-tool-btn v22-dict" onclick="window.openDictionaryModal()">📖 <span>Tra từ</span></button>
+    <!-- DÒNG TRÊN: TIÊU ĐỀ Ở GIỮA VÀ NÚT TỐI Ở BÊN PHẢI -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <div style="width: 80px;"></div>
+        <h1 style="color: #540606; margin: 0; font-size: 1.5em; text-align: center; flex: 1;">Bài Kiểm Tra Toán Anh</h1>
+        <button type="button" id="dark-mode-toggle" style="background: #e0a800; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 0.9em; white-space: nowrap;">🌙 Tối</button>
     </div>
 
-    <section class="v22-card v22-student-card">
-        <div class="v22-section-head">
-            <div>
-                <span class="v22-section-kicker">THÔNG TIN HỌC SINH</span>
-                <h2>👤 Sẵn sàng bắt đầu</h2>
-            </div>
-            <span class="v22-status">● Trực tuyến</span>
-        </div>
-        <label for="student-code">Mã học sinh</label>
-        <div class="v22-input-wrap">
-            <span>👤</span>
-            <input type="text" id="student-code" value="Huy" placeholder="Nhập MÃ HỌC SINH...">
-        </div>
-        <button type="button" id="load-data-btn" onclick="window.loadData()" class="v22-load-btn">✨ Xác nhận Mã & Tải đề</button>
-    </section>
+    <!-- DÒNG DƯỚI: CHỈ CÓ 2 NÚT MÁY TÍNH VÀ TRA TỪ -->
+    <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+        <button type="button" onclick="window.openCalculatorModal()" style="flex: 1; background: #fd7e14; color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 0.95em; white-space: nowrap;">🧮 Máy tính</button>
+        <button type="button" onclick="window.openDictionaryModal()" style="flex: 1; background: #17a2b8; color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 0.95em; white-space: nowrap;">📖 Tra từ</button>
+    </div>
+    
+    <label for="student-code">Mã học sinh:</label>
+    <input type="text" id="student-code" value="Huy" placeholder="Nhập MÃ HỌC SINH..." style="width: 100%; padding: 14px; margin: 8px 0 15px 0; box-sizing: border-box; font-size: 1.1em; border: 1px solid #540606; border-radius: 8px;">
+    
+    <button type="button" id="load-data-btn" onclick="window.loadData()" style="width: 100%; padding: 14px; background: #7e38e0; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 1.1em; margin-bottom: 15px;">Xác nhận Mã & Tải đề</button>
 
-    <section class="v22-card v22-study-card">
-        <div class="v22-section-head">
-            <div>
-                <span class="v22-section-kicker">THIẾT LẬP BÀI HỌC</span>
-                <h2>📚 Chọn nội dung học</h2>
-            </div>
-        </div>
+    <label style="display:block; margin-top:5px;">Chọn môn học:</label>
+    <select id="subject-select" onchange="window.handleSubjectChange()" style="width: 100%; padding: 14px; margin: 8px 0 15px 0; font-size: 1.1em; border: 1px solid #540606; border-radius: 8px;">
+        <option value="">-- Chọn môn --</option>
+    </select>
 
-        <div class="v22-field-grid">
-            <div class="v22-field">
-                <label for="subject-select">Chọn môn học</label>
-                <select id="subject-select" onchange="window.handleSubjectChange()">
-                    <option value="">-- Chọn môn --</option>
-                </select>
-            </div>
-            <div id="level-container" class="v22-field">
-                <label for="level-select">Chọn cấp độ</label>
-                <select id="level-select">
-                    <option value="1">Level 1</option>
-                    <option value="2">Level 2</option>
-                    <option value="3">Level 3</option>
-                </select>
-            </div>
-        </div>
+    <div id="level-container" style="display: none;">
+        <label style="display:block; margin-top:5px;">Chọn cấp độ:</label>
+        <select id="level-select" style="width: 100%; padding: 14px; margin: 8px 0 15px 0; font-size: 1.1em; border: 1px solid #540606; border-radius: 8px;">
+            <option value="1">Level 1</option>
+            <option value="2">Level 2</option>
+            <option value="3">Level 3</option>
+        </select>
+    </div>
 
-        <!-- Giữ checkbox cũ để không ảnh hưởng logic JS -->
-        <input type="checkbox" id="toggle-made" onchange="window.toggleMadeMode()" class="v22-hidden-checkbox">
+    <!-- KHUNG CHỌN MÃ ĐỀ -->
+    <div style="margin-top: 15px; margin-bottom: 15px; background: #fff; padding: 15px; border-radius: 8px; border: 1px solid #540606;">
+        <label style="cursor: pointer; font-weight: bold; color: #540606; display: flex; align-items: center; gap: 10px; font-size: 1.1em;">
+            <input type="checkbox" id="toggle-made" onchange="window.toggleMadeMode()" style="width: 20px; height: 20px; cursor: pointer;"> 
+            Làm bài theo Mã đề (MADE) riêng
+        </label>
 
-        <div class="v22-mode-tabs" role="tablist" aria-label="Chế độ học">
-            <button type="button" class="v22-mode-tab active" id="v22-topic-mode" onclick="document.getElementById('toggle-made').checked=false; window.toggleMadeMode(); document.getElementById('v22-topic-mode').classList.add('active'); document.getElementById('v22-made-mode').classList.remove('active');">
-                📚 <span>Học theo chủ đề</span>
-            </button>
-            <button type="button" class="v22-mode-tab" id="v22-made-mode" onclick="document.getElementById('toggle-made').checked=true; window.toggleMadeMode(); document.getElementById('v22-made-mode').classList.add('active'); document.getElementById('v22-topic-mode').classList.remove('active');">
-                📝 <span>Làm theo Mã đề</span>
-            </button>
-        </div>
-
-        <div id="made-container" class="v22-made-panel" style="display: none;">
-            <label for="made-select">Mã đề được cấp quyền</label>
-            <select id="made-select" onchange="window.handleMadeChange()">
+        <div id="made-container" style="display: none; margin-top: 12px;">
+            <select id="made-select" onchange="window.handleMadeChange()" style="width: 100%; padding: 14px; margin: 5px 0; font-size: 1.1em; border: 1px solid #540606; border-radius: 8px;">
                 <option value="">-- Chọn mã đề --</option>
             </select>
             <div id="made-passage-preview"></div>
         </div>
+    </div>
 
-        <div id="v22-topic-panel" class="v22-topic-panel">
-            <div class="v22-topic-toolbar">
-                <div>
-                    <span class="v22-section-kicker">NỘI DUNG</span>
-                    <label class="v22-topic-label">Chủ đề được phép học</label>
-                </div>
-                <button type="button" onclick="window.toggleAllTopics()" class="v22-select-all">Chọn/Bỏ chọn tất cả</button>
-            </div>
-            <div id="topic-container">Chưa tải dữ liệu...</div>
-        </div>
-    </section>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+        <label style="margin: 0; font-size: 1.1em;">Chọn chủ đề:</label>
+        <button type="button" onclick="window.toggleAllTopics()" style="padding: 6px 12px; font-size: 0.95em; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">Chọn/Bỏ chọn tất cả</button>
+    </div>
+    <div id="topic-container">Chưa tải dữ liệu...</div>
 
-    <section class="v22-actions">
-        <button type="button" id="btn-tao-de-toan" class="v22-action-btn v22-create-btn">🎯 <span>Tạo đề tổng hợp</span><small>30 phút · 21 câu</small></button>
-        <button type="button" id="start-btn" onclick="window.startQuizWithToolCheck()" class="v22-action-btn v22-start-btn">▶ <span>Bắt đầu làm bài</span></button>
-        <button type="button" id="practice-wrong-btn" class="v22-wrong-btn" onclick="window.startWrongQuiz()">🔄 <span>Luyện tập lại các câu đã làm sai</span></button>
-    </section>
+    <!-- NÚT TẠO ĐỀ TỔNG HỢP MÔN TOÁN -->
+    <button type="button" id="btn-tao-de-toan" style="width: 100%; padding: 12px; background-color: #ffc107; color: #000; border: none; border-radius: 8px; font-weight: bold; font-size: 1em; margin-top: 10px; margin-bottom: 10px; cursor: pointer;">
+        🎯 Tạo đề tổng hợp (30 phút - 21 câu)
+    </button>
 
-    <section id="leaderboard" class="v22-card v22-leaderboard">
-        <div class="v22-section-head">
-            <div>
-                <span class="v22-section-kicker">THÀNH TÍCH HỌC TẬP</span>
-                <h2>🏆 Bảng xếp hạng</h2>
-            </div>
-            <span class="v22-rank-badge">TOP STUDENTS</span>
-        </div>
-        <div id="ranking-list"><p>Chưa có dữ liệu xếp hạng.</p></div>
-    </section>
+    <button type="button" id="start-btn" onclick="window.startQuizWithToolCheck()" style="width: 100%; padding: 16px; background: #007bff; color: white; border: none; cursor: pointer; margin-top: 5px; border-radius: 8px; font-weight: bold; font-size: 1.2em;">Bắt Đầu Làm Bài</button>
+
+    <div id="leaderboard" style="margin-top: 25px; padding: 18px; border: 2px solid red; border-radius: 10px; background: #fff;">
+        <h3 style="color: red; margin-top: 0; font-size: 1.3em;">🏆 Bảng xếp hạng:</h3>
+        <div id="ranking-list"><p style="color: #666; font-size: 1.05em;">Chưa có dữ liệu xếp hạng.</p></div>
+    </div>
 </div>
 
 <div class="container" id="quiz-screen" style="display:none;">
