@@ -1,18 +1,9 @@
-(function () {
-    // V18 SINGLE-LOAD GUARD: nếu script.js bị nhúng hai lần, lần thứ hai sẽ không chạy lại.
-    if (window.__QUIZ_V18_SCRIPT_LOADED__) {
-        console.warn('⚠️ script.js V18 đã được nạp trước đó - bỏ qua lần nạp trùng.');
-        return;
-    }
-    window.__QUIZ_V18_SCRIPT_LOADED__ = true;
-
-
-const QUIZ_API_URL = window.__QUIZ_API_URL__ || "https://script.google.com/macros/s/AKfycbxByXvzJFoK6N0jToFqXj1pEMBnGkMyoa7J5r7vEScJTr-ZSOfSw8Wdv8pPg5EyBg/exec";
-window.__QUIZ_API_URL__ = QUIZ_API_URL;
+const API_URL = "https://script.google.com/macros/s/AKfycbxByXvzJFoK6N0jToFqXj1pEMBnGkMyoa7J5r7vEScJTr-ZSOfSw8Wdv8pPg5EyBg/exec";
 
 let AppState = {
     allQuizData: [],
     userPermissions: [],
+    madePermissions: [],
     rankings: [],
     currentQuizData: [],
     timerInterval: null,
@@ -36,9 +27,9 @@ let AppState = {
 };
 
 // ============================================================
-// V15 SPEED LAYER - LOAD ONCE / REUSE MANY TIMES
+// V20 SPEED LAYER - LOAD ONCE / REUSE MANY TIMES
 // ============================================================
-const QUIZ_SESSION_CACHE_PREFIX = 'QUIZ_DATA_CACHE_V17_';
+const QUIZ_SESSION_CACHE_PREFIX = 'QUIZ_DATA_CACHE_V20_';
 const QUIZ_SESSION_CACHE_MAX_CHARS = 3500000;
 
 function getQuizCacheKey(maHS) {
@@ -48,7 +39,7 @@ function getQuizCacheKey(maHS) {
 function saveQuizSessionCache(maHS, data) {
     try {
         const payload = JSON.stringify({
-            version: 17,
+            version: 20,
             savedAt: Date.now(),
             maHS: String(maHS || '').trim(),
             data: data
@@ -69,7 +60,7 @@ function getQuizSessionCache(maHS) {
         const raw = sessionStorage.getItem(getQuizCacheKey(maHS));
         if (!raw) return null;
         const obj = JSON.parse(raw);
-        if (!obj || obj.version !== 17 || !obj.data) return null;
+        if (!obj || obj.version !== 20 || !obj.data) return null;
         return obj.data;
     } catch (e) {
         return null;
@@ -82,10 +73,10 @@ function clearQuizSessionCache(maHS) {
     } catch (e) {}
 }
 
-// V17: bỏ cache của các bản phân quyền cũ để tránh hiển thị dữ liệu quyền trước khi cập nhật.
+// V20: bỏ cache của các bản phân quyền cũ để tránh hiển thị dữ liệu quyền trước khi cập nhật.
 function clearLegacyPermissionCaches() {
     try {
-        ['QUIZ_DATA_CACHE_V15_', 'QUIZ_DATA_CACHE_V16_'].forEach(prefix => {
+        ['QUIZ_DATA_CACHE_V15_', 'QUIZ_DATA_CACHE_V16_', 'QUIZ_DATA_CACHE_V17_', 'QUIZ_DATA_CACHE_V18_', 'QUIZ_DATA_CACHE_V19_'].forEach(prefix => {
             const key = prefix + encodeURIComponent(String(document.getElementById('student-code')?.value || '').trim().toLowerCase());
             sessionStorage.removeItem(key);
         });
@@ -1702,17 +1693,24 @@ window.handleSubjectChange = function() {
 };
 
 // ============================================================
-// V18 PERMISSION LAYER - phân quyền chính xác theo Mã HS | Môn | Chủ đề/Mã đề
-// Hỗ trợ một ô nhiều học sinh: Huy,Bảo,Lan
+// V20 INDEPENDENT PERMISSION LAYER
+//
+// NHÁNH 1: HỌC THEO CHỦ ĐỀ
+//   UserPermissions: Mã học sinh | Môn | Chủ đề
+//
+// NHÁNH 2: HỌC THEO MÃ ĐỀ
+//   MadePermissions: Mã học sinh | Môn | Mã đề
+//
+// Hai quyền hoàn toàn độc lập. Một học sinh chỉ được xem những môn
+// mà em đó có quyền Chủ đề hoặc quyền Mã đề. Sau khi chọn chế độ,
+// từng nhánh sẽ kiểm tra đúng bảng quyền của chính nó.
 // ============================================================
 function normalizePermissionValue(value) {
     return String(value == null ? '' : value)
-        .replace(/[“”‘’"']/g, '')
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '')
         .replace(/đ/g, 'd')
         .replace(/Đ/g, 'D')
-        .replace(/\s+/g, ' ')
         .trim()
         .toLowerCase();
 }
@@ -1721,48 +1719,75 @@ function isStudentAllowed(permissionStudentList, studentCode) {
     const currentStudent = normalizePermissionValue(studentCode);
     if (!currentStudent) return false;
 
-    const students = String(permissionStudentList == null ? '' : permissionStudentList)
-        .split(/[,;\n\r|]+/)
+    return String(permissionStudentList == null ? '' : permissionStudentList)
+        .split(/[,;\n\r]+/)
         .map(code => normalizePermissionValue(code))
-        .filter(Boolean);
-
-    return students.includes(currentStudent);
+        .filter(Boolean)
+        .includes(currentStudent);
 }
 
 function getStudentPermissions(maHS, mon) {
     const cleanMon = cleanKey(mon || '');
     return (Array.isArray(AppState.userPermissions) ? AppState.userPermissions : [])
-        .filter(p => {
-            const allowed = isStudentAllowed(p.maHS, maHS);
-            const sameMon = cleanKey(p.mon || '') === cleanMon;
-            return allowed && sameMon;
-        });
+        .filter(p =>
+            isStudentAllowed(p.maHS, maHS) &&
+            cleanKey(p.mon || '') === cleanMon
+        );
+}
+
+function getStudentMadePermissions(maHS, mon) {
+    const cleanMon = cleanKey(mon || '');
+    return (Array.isArray(AppState.madePermissions) ? AppState.madePermissions : [])
+        .filter(p =>
+            isStudentAllowed(p.maHS, maHS) &&
+            cleanKey(p.mon || '') === cleanMon
+        );
 }
 
 function getAllowedPermissionValues(maHS, mon) {
-    const result = getStudentPermissions(maHS, mon)
-        .map(p => String(p.chuDe == null ? '' : p.chuDe).trim())
-        .filter(Boolean);
-
-    return [...new Set(result.map(v => cleanKey(v)))]
-        .map(key => result.find(v => cleanKey(v) === key));
+    return [...new Set(
+        getStudentPermissions(maHS, mon)
+            .map(p => String(p.chuDe == null ? '' : p.chuDe).trim())
+            .filter(Boolean)
+    )];
 }
 
-function getAllowedSubjects(maHS) {
-    const source = Array.isArray(AppState.userPermissions) ? AppState.userPermissions : [];
-    const result = source
+function getAllowedMadeValues(maHS, mon) {
+    return [...new Set(
+        getStudentMadePermissions(maHS, mon)
+            .map(p => String(p.made == null ? '' : p.made).trim())
+            .filter(Boolean)
+    )];
+}
+
+function getAllowedSubjectsForStudent(maHS) {
+    const topicSubjects = (Array.isArray(AppState.userPermissions) ? AppState.userPermissions : [])
         .filter(p => isStudentAllowed(p.maHS, maHS))
-        .map(p => String(p.mon == null ? '' : p.mon).trim())
-        .filter(Boolean);
+        .map(p => String(p.mon == null ? '' : p.mon).trim());
 
-    return [...new Set(result.map(v => cleanKey(v)))]
-        .map(key => result.find(v => cleanKey(v) === key));
+    const madeSubjects = (Array.isArray(AppState.madePermissions) ? AppState.madePermissions : [])
+        .filter(p => isStudentAllowed(p.maHS, maHS))
+        .map(p => String(p.mon == null ? '' : p.mon).trim());
+
+    const unique = [];
+    [...topicSubjects, ...madeSubjects].forEach(subject => {
+        if (!subject || cleanKey(subject) === 'id') return;
+        if (!unique.some(x => cleanKey(x) === cleanKey(subject))) unique.push(subject);
+    });
+    return unique;
 }
 
+// MADE MODE: dùng bảng MadePermissions độc lập với UserPermissions.
+// Chỉ hiển thị các Mã đề đã cấp quyền cho học sinh hiện tại theo đúng Môn.
 window.updateMadeList = function() {
-    const monSelect = document.getElementById('subject-select') ? document.getElementById('subject-select').value.trim() : '';
-    const maHS = document.getElementById('student-code') ? document.getElementById('student-code').value.trim() : '';
+    const monSelect = document.getElementById('subject-select')
+        ? document.getElementById('subject-select').value.trim()
+        : '';
+    const maHS = document.getElementById('student-code')
+        ? document.getElementById('student-code').value.trim()
+        : '';
     const madeSelect = document.getElementById('made-select');
+
     if (!madeSelect) return;
 
     if (!monSelect || !maHS) {
@@ -1771,21 +1796,28 @@ window.updateMadeList = function() {
     }
 
     const cleanMonSelect = cleanKey(monSelect);
-    const allowedValues = getAllowedPermissionValues(maHS, monSelect);
-    const allowedMadeKeys = new Set(allowedValues.map(v => cleanKey(v)));
+    const allowedMadeValues = getAllowedMadeValues(maHS, monSelect);
 
-    const mades = [...new Set(AppState.allQuizData
-        .filter(i =>
-            cleanKey(i.mon) === cleanMonSelect &&
-            i.made &&
-            String(i.made).trim() !== '' &&
-            allowedMadeKeys.has(cleanKey(String(i.made).trim()))
-        )
-        .map(i => String(i.made).trim())
-    )].filter(Boolean);
+    // Chỉ hiển thị MADE vừa được cấp quyền vừa thực sự tồn tại trong dữ liệu câu hỏi.
+    const authorizedMades = allowedMadeValues.filter((made, index, arr) => {
+        const madeKey = cleanKey(made);
+        const existsInQuizData = AppState.allQuizData.some(i =>
+            cleanKey(i.mon || '') === cleanMonSelect &&
+            cleanKey(i.made || '') === madeKey &&
+            String(i.question || '').trim() !== ''
+        );
+        return madeKey && arr.findIndex(x => cleanKey(x) === madeKey) === index && existsInQuizData;
+    });
 
     madeSelect.innerHTML = '<option value="">-- Chọn mã đề --</option>' +
-        mades.map(m => '<option value="' + escapeHTML(m) + '">Mã đề: ' + escapeHTML(m) + '</option>').join('');
+        authorizedMades.map(m =>
+            '<option value="' + escapeHTML(m) + '">Mã đề: ' +
+            escapeHTML(m) + '</option>'
+        ).join('');
+
+    if (authorizedMades.length === 0) {
+        madeSelect.innerHTML = '<option value="">-- Chưa được phân quyền mã đề --</option>';
+    }
 };
 
 window.updateTopicList = function() {
@@ -1794,7 +1826,7 @@ window.updateTopicList = function() {
     const container = document.getElementById('topic-container');
     if (!container) return;
 
-    console.log('🔐 V18 phân quyền chủ đề:', { maHS, monSelect, permissions: AppState.userPermissions });
+    console.log('🔐 V20 phân quyền chủ đề:', { maHS, monSelect, permissions: AppState.userPermissions });
 
     if (!monSelect || !maHS) {
         container.innerHTML = '<i style="color: #d9534f;">Vui lòng nhập Mã học sinh và chọn môn.</i>';
@@ -1839,10 +1871,15 @@ window.initInterface = function() {
     const maHS = document.getElementById('student-code') ? document.getElementById('student-code').value.trim() : '';
 
     if (subjectSelect) {
-        console.log('🔐 V18 khởi tạo phân quyền cho:', maHS, AppState.userPermissions);
-        // Chỉ hiển thị môn mà học sinh hiện tại có ít nhất một dòng phân quyền.
-        const allowedSubjects = getAllowedSubjects(maHS)
-            .filter(s => s && cleanKey(s) !== 'id');
+        console.log('🔐 V20 khởi tạo phân quyền độc lập:', {
+            maHS,
+            topicPermissions: AppState.userPermissions,
+            madePermissions: AppState.madePermissions
+        });
+
+        // Một Môn được hiển thị nếu học sinh có quyền ở ÍT NHẤT một trong hai nhánh:
+        // UserPermissions hoặc MadePermissions.
+        const allowedSubjects = getAllowedSubjectsForStudent(maHS);
 
         subjectSelect.innerHTML = '<option value="">-- Chọn môn --</option>' +
             allowedSubjects.map(s => '<option value="' + escapeHTML(s) + '">' + escapeHTML(s) + '</option>').join('');
@@ -1889,7 +1926,7 @@ window.loadData = function(forceRefresh = false) {
 
     AppState.dataLoading = true;
     const script = document.createElement('script');
-    script.src = QUIZ_API_URL + '?ma=' + encodeURIComponent(maHS) + '&callback=handleQuizData';
+    script.src = API_URL + '?ma=' + encodeURIComponent(maHS) + '&callback=handleQuizData';
     script.onerror = () => {
         AppState.dataLoading = false;
         script.remove();
@@ -1930,22 +1967,24 @@ window.handleQuizData = function(data, fromSessionCache = false) {
 
         rebuildQuestionIndex();
 
-        // V18: giữ nguyên từng dòng phân quyền, hỗ trợ nhiều mã học sinh trong một ô.
-        // Ví dụ: Huy,Bảo,Lan | Tiếng Anh | WHAT & HOW
-        AppState.userPermissions = (Array.isArray(data.permissions) ? data.permissions : [])
-            .map(p => {
-                const maRaw = Array.isArray(p) ? p[0] : (p && (p.maHS ?? p.mahocSinh ?? p.maHocSinh));
-                const monRaw = Array.isArray(p) ? p[1] : (p && (p.mon ?? p.subject));
-                const chuDeRaw = Array.isArray(p) ? p[2] : (p && (p.chuDe ?? p.chude ?? p.topic));
-                return {
-                    maHS: String(maRaw == null ? '' : maRaw).trim(),
-                    mon: standardizeSubject(String(monRaw == null ? '' : monRaw).trim()),
-                    chuDe: String(chuDeRaw == null ? '' : chuDeRaw).trim()
-                };
-            })
-            .filter(p => p.maHS !== '' && p.mon !== '' && p.chuDe !== '');
+        // NHÁNH 1: Quyền Chủ đề từ UserPermissions.
+        AppState.userPermissions = (data.permissions || []).map(p => ({
+            maHS: String(p.maHS || p[0] || '').trim(),
+            mon: standardizeSubject(String(p.mon || p[1] || '').trim()),
+            chuDe: String(p.chuDe || p[2] || '').trim()
+        })).filter(p => p.maHS !== '' && p.mon !== '' && p.chuDe !== '');
 
-        console.log('🔐 V18 permissions đã nhận:', AppState.userPermissions);
+        // NHÁNH 2: Quyền Mã đề từ MadePermissions, hoàn toàn độc lập.
+        AppState.madePermissions = (data.madePermissions || []).map(p => ({
+            maHS: String(p.maHS || p[0] || '').trim(),
+            mon: standardizeSubject(String(p.mon || p[1] || '').trim()),
+            made: String(p.made || p.maDe || p.MADE || p[2] || '').trim()
+        })).filter(p => p.maHS !== '' && p.mon !== '' && p.made !== '');
+
+        console.log('🔐 V20 quyền đã nhận:', {
+            topicPermissions: AppState.userPermissions.length,
+            madePermissions: AppState.madePermissions.length
+        });
 
         AppState.rankings = [];
 
@@ -2224,6 +2263,10 @@ window.startQuiz = function() {
     
     const toggleMade = document.getElementById('toggle-made');
     const selectedMade = (toggleMade && toggleMade.checked && document.getElementById('made-select')) ? document.getElementById('made-select').value.trim() : '';
+
+    // MADE là chế độ riêng: không kiểm tra phân quyền Chủ đề và không yêu cầu
+    // checkbox Chủ đề, kể cả khi học sinh đang chọn Level 2/3.
+    const isMadeMode = !!selectedMade;
     
     if (selectedMade) {
         const tenPointTimeKey = 'made_10_time_' + maHS + '_' + mon + '_' + selectedMade;
@@ -2242,7 +2285,7 @@ window.startQuiz = function() {
     const selectedLevel = levelSelect ? levelSelect.value : '';
     const selectedTopics = Array.from(document.querySelectorAll('input[name="topic"]:checked')).map(cb => cb.value);
 
-    if (selectedLevel === 'Level 2' || selectedLevel === 'Level 3' || selectedLevel === '2' || selectedLevel === '3' || selectedLevel.includes('2') || selectedLevel.includes('3')) {
+    if (!isMadeMode && (selectedLevel === 'Level 2' || selectedLevel === 'Level 3' || selectedLevel === '2' || selectedLevel === '3' || selectedLevel.includes('2') || selectedLevel.includes('3'))) {
         if (!selectedTopics.length) return alert("Vui lòng chọn chủ đề!");
 
         for (let topic of selectedTopics) {
@@ -2763,7 +2806,7 @@ addLocalRankingAfterSubmit(maHS, score, submitMon, level || 1, submitChuDe);
 
 // 2. Chỉ cần có Mã học sinh (maHS) là BẮT BUỘC gửi về Google Sheets
 if (maHS) {
-    fetch(QUIZ_API_URL, {
+    fetch(API_URL, {
         method: 'POST',
         mode: 'no-cors',
         headers: { 'Content-Type': 'application/json' },
@@ -3541,7 +3584,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // Gửi kết quả đề tổng hợp lên Google Sheets nhưng KHÔNG tải lại dữ liệu.
                 if (maHS) {
-                    fetch(QUIZ_API_URL, {
+                    fetch(API_URL, {
                         method: 'POST',
                         mode: 'no-cors',
                         headers: { 'Content-Type': 'application/json' },
@@ -3729,10 +3772,3 @@ window.printPDF = function() {
 };
 
 window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e) {} });
-
-
-    // Các hàm được gọi trực tiếp từ HTML động.
-    if (typeof speakWord === 'function') window.speakWord = speakWord;
-    if (typeof startPronunciationCheck === 'function') window.startPronunciationCheck = startPronunciationCheck;
-    if (typeof stopPronunciationCheck === 'function') window.stopPronunciationCheck = stopPronunciationCheck;
-})();
