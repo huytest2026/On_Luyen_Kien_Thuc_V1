@@ -1,4 +1,13 @@
 const API_URL = "https://script.google.com/macros/s/AKfycbxByXvzJFoK6N0jToFqXj1pEMBnGkMyoa7J5r7vEScJTr-ZSOfSw8Wdv8pPg5EyBg/exec";
+
+// ============================================================
+// V30 — SINGLE DICTIONARY ENGINE
+// - Chỉ script.js sở hữu window.lookupWord
+// - Không dùng V17/V18 wrapper, không dùng V28 patch
+// - Không dùng MutationObserver để chèn từ gốc
+// - Từ gốc được tính trước khi tra và được render trong cùng luồng
+// ============================================================
+
 let AppState = {
     allQuizData: [],
     userPermissions: [],
@@ -527,7 +536,7 @@ window.closeDictionaryModal = function() {
 // Memory -> IndexedDB -> localStorage fallback
 // Progressive loading + stale-while-revalidate
 // ==========================================
-const DICT_V11_CACHE_VERSION = 'v27-baseform-guaranteed';
+const DICT_V11_CACHE_VERSION = 'v30-single-engine-baseform';
 const DICT_V11_DB_NAME = 'EnglishDictionaryCacheV15';
 const DICT_V11_STORE = 'entries';
 const DICT_V11_TTL = 1000 * 60 * 60 * 24 * 30; // 30 ngày
@@ -1234,8 +1243,11 @@ function dictResolveRegularVerbForm(value) {
         const stem = query.slice(0, -2);
         if (stem.endsWith('i') && stem.length > 2) add(stem.slice(0, -1) + 'y', '-ied → -y');
         if (dictLooksLikeDoubledFinalConsonant(stem)) add(stem.slice(0, -1), 'bỏ phụ âm kép + -ed');
-        // closed -> close phải được ưu tiên trước close-less candidate.
-        add(stem + 'e', '+e trước -ed');
+
+        // Các hậu tố thường giữ lại chữ e khi thêm -d: close -> closed, resolve -> resolved...
+        // Ưu tiên dạng +e để tránh closed -> clos. Sau đó vẫn giữ ứng viên bỏ -ed
+        // làm dự phòng cho worked -> work.
+        add(stem + 'e', '+e trước -d/-ed');
         add(stem, 'bỏ -ed');
     }
 
@@ -1281,7 +1293,7 @@ function dictResolveBaseForm(value) {
     return dictResolveIrregularVerbForm(value) || dictResolveRegularVerbForm(value);
 }
 
-// V29: Thông tin từ gốc là lớp bắt buộc, độc lập với Offline/RAM/IndexedDB/API.
+// V30: Thông tin từ gốc là lớp bắt buộc, được render trực tiếp bởi engine duy nhất.
 // Vì vậy mọi kết quả tra một dạng biến đổi đều phải hiện rõ dạng đã nhập -> từ gốc.
 function dictBuildBaseFormNotice(requestedWord, verbInfo) {
     if (!verbInfo) return '';
@@ -1304,15 +1316,15 @@ function dictBuildBaseFormNotice(requestedWord, verbInfo) {
     </div>`;
 }
 
-// V29: Luôn đặt notice ở đầu kết quả, kể cả HTML lấy từ cache cũ hoặc được bổ sung bất đồng bộ.
+// V30: Luôn đặt thông tin từ gốc ở đầu kết quả, kể cả HTML lấy từ cache cũ hoặc được bổ sung bất đồng bộ.
 function dictV27ApplyBaseFormNotice(resultBox, baseFormNotice, html) {
     if (!resultBox) return;
     const body = String(html || '').replace(/<div class="dict-base-form-note"[\s\S]*?<\/div>\s*(?=<div|$)/g, '');
     resultBox.innerHTML = (baseFormNotice || '') + body;
 }
 
-// V29: logic render cuối cùng đã tích hợp trực tiếp. Hàm này được dùng khi kết quả bị script khác ghi đè.
-function dictV28ForceBaseFormNotice(resultBox, requestedWord) {
+// V30: hàm dự phòng nội bộ; không dùng MutationObserver và không tự quan sát DOM.
+function dictV30ApplyBaseFormNoticeNow(resultBox, requestedWord) {
     if (!resultBox) return;
     const requested = dictV11NormalizeWord(requestedWord || '');
     if (!requested) return;
