@@ -1,12 +1,12 @@
 const API_URL = "https://script.google.com/macros/s/AKfycbxByXvzJFoK6N0jToFqXj1pEMBnGkMyoa7J5r7vEScJTr-ZSOfSw8Wdv8pPg5EyBg/exec";
 
 // ============================================================
-// V32 — SINGLE DICTIONARY ENGINE + PROFESSIONAL DUAL-PRONUNCIATION UI
+// V33 — SINGLE DICTIONARY ENGINE + ROBUST DUAL-PRONUNCIATION UI
 // - Chỉ script.js sở hữu window.lookupWord
 // - Không dùng V17/V18 wrapper, không dùng V28 patch
 // - Không dùng MutationObserver để chèn từ gốc
 // - Từ gốc được tính trước khi tra và được render trong cùng luồng
-// - V32: hiển thị tách rõ 2 thẻ: TỪ BẠN TRA và TỪ GỐC, mỗi thẻ có IPA + nút nghe riêng
+// - V33: giữ 2 thẻ TỪ BẠN TRA / TỪ GỐC, IPA + nút nghe riêng và tăng độ ổn định khi dữ liệu phát âm tải chậm
 // ============================================================
 
 let AppState = {
@@ -1388,6 +1388,9 @@ function dictV32EnsureStyles() {
       .dict-v32-relation{margin:0 14px 12px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.7);color:#5b5b5b;font-size:.93rem}
       .dict-v32-paradigm{margin:0 14px 14px;padding:11px 12px;border-radius:10px;background:#fff;border:1px solid #eadfc9;color:#5b5b5b;font-size:.92rem}
       .dict-v32-paradigm b{color:#343434}
+      /* V33: tăng khả năng đọc và tránh nút nghe bị co quá nhỏ */
+      .dict-v32-form-card{min-height:142px}.dict-v32-listen{white-space:nowrap;min-width:88px}
+      .dict-v32-ipa{overflow-wrap:anywhere}.dict-v32-word-row{padding-bottom:2px}
       @media(max-width:620px){.dict-v32-form-grid{grid-template-columns:1fr}.dict-v32-note-head{align-items:flex-start;flex-direction:column}.dict-v32-note-sub{text-align:left}.dict-v32-word{font-size:1.35rem}}
     `;
     document.head.appendChild(style);
@@ -1516,6 +1519,81 @@ function dictV26GetResultHTMLForCache(resultBox) {
     return clone.innerHTML;
 }
 
+
+// ============================================================
+// V33 HARDENING LAYER
+// - Không thêm engine thứ hai, không dùng wrapper/MutationObserver.
+// - Ưu tiên dữ liệu offline 50K, sau đó mới gọi API phát âm.
+// - Chống dữ liệu IPA/audio rỗng hoặc Promise cache bị lỗi.
+// - Giữ nguyên cấu trúc HTML/CSS hiện có để không ảnh hưởng chức năng làm bài.
+// ============================================================
+function dictV33NormalizePronunciationMeta(meta, fallbackWord) {
+    const word = dictV11NormalizeWord(meta?.word || fallbackWord || '');
+    return {
+        word,
+        ipa: String(meta?.ipa || '').trim(),
+        audio: String(meta?.audio || '').trim()
+    };
+}
+
+async function dictV33GetPronunciationMeta(word) {
+    const key = dictV11NormalizeWord(word);
+    if (!key) return { word:'', ipa:'', audio:'' };
+
+    // Reuse the V31/V32 cache, but remove a failed/empty cached request so a later
+    // lookup can retry instead of permanently showing an empty pronunciation.
+    try {
+        const meta = dictV33NormalizePronunciationMeta(
+            await dictV31GetPronunciationMeta(key), key
+        );
+        if (meta.ipa || meta.audio) return meta;
+        DICT_V31_PRON_CACHE.delete(key);
+        return meta;
+    } catch (e) {
+        DICT_V31_PRON_CACHE.delete(key);
+        return { word:key, ipa:'', audio:'' };
+    }
+}
+
+function dictV33UpdatePronunciationCard(row, meta, word) {
+    if (!row) return;
+    const safeMeta = dictV33NormalizePronunciationMeta(meta, word);
+    dictV31UpdatePronunciationRow(row, safeMeta, word);
+
+    const ipaEl = row.querySelector('.dict-v32-ipa');
+    if (ipaEl && !safeMeta.ipa) {
+        ipaEl.textContent = 'Chưa có IPA — vẫn có thể nghe phát âm';
+    }
+}
+
+function dictV31EnhanceBaseFormPronunciations(resultBox, requestedWord, verbInfo, requestId = AppState.dictionaryRequestId) {
+    if (!resultBox || !verbInfo) return;
+    const requested = dictV11NormalizeWord(requestedWord);
+    const base = dictV11NormalizeWord(verbInfo.base || verbInfo.v1 || '');
+    if (!requested || !base) return;
+
+    const requestedSelector = `#dict-v32-requested-pron-${requested}`;
+    const baseSelector = `#dict-v32-base-pron-${base}`;
+
+    // V33: tải song song nhưng cập nhật từng thẻ độc lập; một thẻ lỗi không làm mất thẻ kia.
+    Promise.allSettled([
+        dictV33GetPronunciationMeta(requested),
+        dictV33GetPronunciationMeta(base)
+    ]).then(([requestedResult, baseResult]) => {
+        if (!dictV11IsCurrent(requestId)) return;
+
+        const requestedRow = resultBox.querySelector(requestedSelector);
+        const baseRow = resultBox.querySelector(baseSelector);
+
+        if (requestedResult.status === 'fulfilled') {
+            dictV33UpdatePronunciationCard(requestedRow, requestedResult.value, requested);
+        }
+        if (baseResult.status === 'fulfilled') {
+            dictV33UpdatePronunciationCard(baseRow, baseResult.value, base);
+        }
+    }).catch(() => {});
+}
+
 window.lookupWord = async function(requestedWord = '') {
     const input = document.getElementById('dict-input');
     const resultBox = document.getElementById('dict-result');
@@ -1541,7 +1619,7 @@ window.lookupWord = async function(requestedWord = '') {
     const requestId = ++AppState.dictionaryRequestId;
     const showResult = (html) => {
         dictV27ApplyBaseFormNotice(resultBox, baseFormNotice, html);
-        // V32: sau khi render, cập nhật riêng IPA/audio của từ đang tra và từ gốc.
+        // V33: sau khi render, cập nhật riêng IPA/audio của từ đang tra và từ gốc theo luồng ổn định hơn.
         if (verbInfo) dictV31EnhanceBaseFormPronunciations(resultBox, requested, verbInfo, requestId);
     };
     if (AppState.dictionaryAbortController) {
