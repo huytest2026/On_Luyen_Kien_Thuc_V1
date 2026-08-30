@@ -1,11 +1,12 @@
 const API_URL = "https://script.google.com/macros/s/AKfycbxByXvzJFoK6N0jToFqXj1pEMBnGkMyoa7J5r7vEScJTr-ZSOfSw8Wdv8pPg5EyBg/exec";
 
 // ============================================================
-// V30 — SINGLE DICTIONARY ENGINE
+// V32 — SINGLE DICTIONARY ENGINE + PROFESSIONAL DUAL-PRONUNCIATION UI
 // - Chỉ script.js sở hữu window.lookupWord
 // - Không dùng V17/V18 wrapper, không dùng V28 patch
 // - Không dùng MutationObserver để chèn từ gốc
 // - Từ gốc được tính trước khi tra và được render trong cùng luồng
+// - V32: hiển thị tách rõ 2 thẻ: TỪ BẠN TRA và TỪ GỐC, mỗi thẻ có IPA + nút nghe riêng
 // ============================================================
 
 let AppState = {
@@ -536,7 +537,7 @@ window.closeDictionaryModal = function() {
 // Memory -> IndexedDB -> localStorage fallback
 // Progressive loading + stale-while-revalidate
 // ==========================================
-const DICT_V11_CACHE_VERSION = 'v30-single-engine-baseform';
+const DICT_V11_CACHE_VERSION = 'v31-single-engine-dual-pronunciation';
 const DICT_V11_DB_NAME = 'EnglishDictionaryCacheV15';
 const DICT_V11_STORE = 'entries';
 const DICT_V11_TTL = 1000 * 60 * 60 * 24 * 30; // 30 ngày
@@ -1295,25 +1296,199 @@ function dictResolveBaseForm(value) {
 
 // V30: Thông tin từ gốc là lớp bắt buộc, được render trực tiếp bởi engine duy nhất.
 // Vì vậy mọi kết quả tra một dạng biến đổi đều phải hiện rõ dạng đã nhập -> từ gốc.
-function dictBuildBaseFormNotice(requestedWord, verbInfo) {
-    if (!verbInfo) return '';
+// V31: HIỂN THỊ SONG SONG PHÁT ÂM CỦA DẠNG ĐANG TRA VÀ TỪ GỐC.
+// Ví dụ: went -> /went/ và go -> /ɡəʊ/.
+const DICT_V31_PRON_CACHE = new Map();
 
-    const base = verbInfo.base || verbInfo.v1 || '';
+function dictV31GetIrregularParadigm(verbInfo) {
+    const base = dictV11NormalizeWord(verbInfo?.base || verbInfo?.v1 || '');
+    if (!base) return null;
+
+    try {
+        if (typeof IRREGULAR_VERBS_DATA !== 'undefined' && Array.isArray(IRREGULAR_VERBS_DATA)) {
+            const found = IRREGULAR_VERBS_DATA.find(item => dictV11NormalizeWord(item?.v1) === base);
+            if (found) {
+                return {
+                    v1: dictV11NormalizeWord(found.v1),
+                    v2: String(found.v2 || '').trim(),
+                    v3: String(found.v3 || '').trim()
+                };
+            }
+        }
+    } catch (e) {}
+
+    return {
+        v1: base,
+        v2: String(verbInfo?.v2 || '').trim(),
+        v3: String(verbInfo?.v3 || '').trim()
+    };
+}
+
+function dictV31ExtractPronunciation(entries, fallbackWord) {
+    const list = Array.isArray(entries) ? entries : [];
+    const phonetics = list.flatMap(e => Array.isArray(e?.phonetics) ? e.phonetics : []);
+    const ipa = list.map(e => e?.phonetic).find(Boolean)
+        || phonetics.map(p => p?.text).find(Boolean)
+        || '';
+    const audio = phonetics.map(p => p?.audio).find(Boolean) || '';
+    return { word: fallbackWord, ipa: String(ipa || '').trim(), audio: String(audio || '').trim() };
+}
+
+async function dictV31GetPronunciationMeta(word) {
+    const key = dictV11NormalizeWord(word);
+    if (!key) return { word:'', ipa:'', audio:'' };
+    if (DICT_V31_PRON_CACHE.has(key)) return DICT_V31_PRON_CACHE.get(key);
+
+    const promise = (async () => {
+        try {
+            const offline = await getOffline50KEntry(key);
+            if (offline?.ipa) {
+                return { word:key, ipa:String(offline.ipa).trim(), audio:String(offline.audio || '').trim() };
+            }
+        } catch (e) {}
+
+        try {
+            const url = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(key)}`;
+            const data = await dictV11FetchJSON(url, 3500);
+            const meta = dictV31ExtractPronunciationMeta(data, key);
+            return meta;
+        } catch (e) {
+            return { word:key, ipa:'', audio:'' };
+        }
+    })();
+
+    DICT_V31_PRON_CACHE.set(key, promise);
+    return promise;
+}
+
+function dictV31ExtractPronunciationMeta(entries, fallbackWord) {
+    return dictV31ExtractPronunciation(entries, fallbackWord);
+}
+
+function dictV32EnsureStyles() {
+    if (document.getElementById('dict-v32-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'dict-v32-styles';
+    style.textContent = `
+      .dict-v32-base-note{margin:0 0 12px;padding:0;background:linear-gradient(180deg,#fffdfa,#fff8e8);border:1px solid #e8c46f;border-radius:16px;overflow:hidden;box-shadow:0 8px 24px rgba(114,75,20,.10)}
+      .dict-v32-note-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;background:rgba(255,255,255,.65);border-bottom:1px solid rgba(232,196,111,.55)}
+      .dict-v32-note-title{font-weight:800;color:#6b3b00;font-size:1rem}.dict-v32-note-sub{color:#777;font-size:.9rem;text-align:right}
+      .dict-v32-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:14px}
+      .dict-v32-form-card{position:relative;border:1px solid #e5d8bd;border-radius:13px;padding:14px;background:#fff;min-width:0}
+      .dict-v32-form-card.requested{border-color:#e9b957;background:linear-gradient(180deg,#fffdf7,#fff7e4)}
+      .dict-v32-form-card.base{border-color:#9dc7a6;background:linear-gradient(180deg,#fbfffb,#eef8ef)}
+      .dict-v32-card-kicker{display:flex;align-items:center;gap:8px;font-size:.82rem;font-weight:800;letter-spacing:.02em;text-transform:uppercase;margin-bottom:8px}
+      .dict-v32-form-card.requested .dict-v32-card-kicker{color:#9a5a00}.dict-v32-form-card.base .dict-v32-card-kicker{color:#2f6b3b}
+      .dict-v32-word-row{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.dict-v32-word{font-size:1.55rem;font-weight:900;line-height:1.15;color:#3f1c1c;word-break:break-word}
+      .dict-v32-tag{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;background:rgba(122,75,0,.10);color:#7a4b00;font-size:.78rem;font-weight:800}
+      .dict-v32-ipa-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px dashed rgba(0,0,0,.12)}
+      .dict-v32-ipa-label{font-size:.82rem;font-weight:800;color:#6b6b6b}.dict-v32-ipa{font-size:1.08rem;color:#164d73;font-weight:700}
+      .dict-v32-listen{border:0;border-radius:9px;padding:7px 10px;cursor:pointer;background:#f3efe5;color:#4b3b20;font-weight:800;font-size:.86rem}
+      .dict-v32-listen:hover{filter:brightness(.98);transform:translateY(-1px)}
+      .dict-v32-relation{margin:0 14px 12px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.7);color:#5b5b5b;font-size:.93rem}
+      .dict-v32-paradigm{margin:0 14px 14px;padding:11px 12px;border-radius:10px;background:#fff;border:1px solid #eadfc9;color:#5b5b5b;font-size:.92rem}
+      .dict-v32-paradigm b{color:#343434}
+      @media(max-width:620px){.dict-v32-form-grid{grid-template-columns:1fr}.dict-v32-note-head{align-items:flex-start;flex-direction:column}.dict-v32-note-sub{text-align:left}.dict-v32-word{font-size:1.35rem}}
+    `;
+    document.head.appendChild(style);
+}
+
+function dictV32AudioButton(word, audio) {
+    const safeWord = escapeHTML(word);
+    return audio
+        ? `<button type="button" class="dict-v32-listen" onclick="window.playDictionaryAudio('${escapeHTML(audio)}')">🔊 Nghe</button>`
+        : `<button type="button" class="dict-v32-listen" onclick="speakWord('${safeWord}')">🔊 Nghe</button>`;
+}
+
+function dictV32PronunciationCard(id, variant, kicker, word, typeLabel, ipa, audio) {
+    const safeId = escapeHTML(id);
+    const safeWord = escapeHTML(word);
+    const safeIpa = escapeHTML(ipa || 'Đang lấy phiên âm…');
+    return `<section class="dict-v32-form-card ${variant}" id="${safeId}">
+        <div class="dict-v32-card-kicker">${kicker}</div>
+        <div class="dict-v32-word-row"><span class="dict-v32-word">${safeWord}</span>${typeLabel ? `<span class="dict-v32-tag">${escapeHTML(typeLabel)}</span>` : ''}</div>
+        <div class="dict-v32-ipa-row">
+            <span class="dict-v32-ipa-label">🔤 IPA</span>
+            <code class="dict-v32-ipa">${safeIpa}</code>
+            ${dictV32AudioButton(word, audio)}
+        </div>
+    </section>`;
+}
+
+function dictV31BuildBaseFormNotice(requestedWord, verbInfo) {
+    if (!verbInfo) return '';
+    dictV32EnsureStyles();
+
+    const requested = dictV11NormalizeWord(requestedWord);
+    const base = dictV11NormalizeWord(verbInfo.base || verbInfo.v1 || '');
     const type = verbInfo.matchedType || 'dạng biến đổi';
     const relation = verbInfo.resolverType === 'irregular'
-        ? `${escapeHTML(requestedWord)} là dạng ${escapeHTML(type)} của động từ ${escapeHTML(base)}.`
-        : `${escapeHTML(requestedWord)} là một dạng biến đổi của ${escapeHTML(base)}.`;
-
+        ? `${escapeHTML(requested)} là dạng ${escapeHTML(type)} của động từ ${escapeHTML(base)}.`
+        : `${escapeHTML(requested)} là một dạng biến đổi của ${escapeHTML(base)}.`;
     const paradigm = verbInfo.resolverType === 'irregular'
-        ? `<div style="margin-top:6px;color:#555;font-size:.94em;">V1: <b>${escapeHTML(verbInfo.v1 || base)}</b> &nbsp;•&nbsp; V2: <b>${escapeHTML(verbInfo.v2 || '')}</b> &nbsp;•&nbsp; V3: <b>${escapeHTML(verbInfo.v3 || '')}</b></div>`
-        : `<div style="margin-top:6px;color:#666;font-size:.92em;">${escapeHTML(verbInfo.ruleLabel || 'Đã nhận diện dạng biến đổi')}</div>`;
+        ? dictV31GetIrregularParadigm(verbInfo)
+        : null;
+    const paradigmHtml = paradigm
+        ? `<div class="dict-v32-paradigm">🔗 <b>Dạng động từ:</b> V1: <b>${escapeHTML(paradigm.v1 || base)}</b> &nbsp;•&nbsp; V2: <b>${escapeHTML(paradigm.v2 || '')}</b> &nbsp;•&nbsp; V3: <b>${escapeHTML(paradigm.v3 || '')}</b></div>`
+        : `<div class="dict-v32-paradigm">🔗 ${escapeHTML(verbInfo.ruleLabel || 'Đã nhận diện dạng biến đổi')}</div>`;
 
-    return `<div class="dict-base-form-note" data-requested-word="${escapeHTML(requestedWord)}" data-base-word="${escapeHTML(base)}" style="margin:0 0 10px;padding:12px 14px;background:#fff7df;border:1px solid #f0c36d;border-radius:9px;line-height:1.55;box-shadow:0 1px 4px rgba(0,0,0,.04);">
-        <div style="font-size:1.02em;">🔄 <b>Dạng bạn tra:</b> <span style="color:#7a4b00;font-weight:700;">${escapeHTML(requestedWord)}</span> <span style="color:#777;">(${escapeHTML(type)})</span></div>
-        <div style="margin-top:4px;font-size:1.08em;"><span style="color:#2f5f2f;font-weight:700;">📌 Từ gốc (V1): ${escapeHTML(base)}</span></div>
-        <div style="margin-top:4px;color:#555;">${relation}</div>
-        ${paradigm}
+    const requestedId = `dict-v32-requested-pron-${requested}`;
+    const baseId = `dict-v32-base-pron-${base}`;
+
+    return `<div class="dict-base-form-note dict-v32-base-note" data-requested-word="${escapeHTML(requested)}" data-base-word="${escapeHTML(base)}">
+        <div class="dict-v32-note-head">
+            <div class="dict-v32-note-title">🧭 Nhận diện dạng từ</div>
+            <div class="dict-v32-note-sub">Hiển thị riêng từ bạn tra và từ gốc để dễ học</div>
+        </div>
+        <div class="dict-v32-form-grid">
+            ${dictV32PronunciationCard(requestedId, 'requested', '🔎 Từ bạn đang tra', requested, type, 'Đang lấy phiên âm…', '')}
+            ${dictV32PronunciationCard(baseId, 'base', '📌 Từ gốc (V1)', base, 'Base form', 'Đang lấy phiên âm…', '')}
+        </div>
+        <div class="dict-v32-relation">${relation}</div>
+        ${paradigmHtml}
     </div>`;
+}
+
+function dictV31UpdatePronunciationRow(row, meta, word) {
+    if (!row) return;
+    const ipaEl = row.querySelector('.dict-v32-ipa');
+    if (ipaEl) ipaEl.textContent = meta?.ipa || 'Chưa có dữ liệu IPA';
+
+    const button = row.querySelector('.dict-v32-listen');
+    if (button) {
+        if (meta?.audio) {
+            button.setAttribute('onclick', `window.playDictionaryAudio('${escapeHTML(meta.audio)}')`);
+        } else {
+            button.setAttribute('onclick', `speakWord('${escapeHTML(word)}')`);
+        }
+    }
+}
+
+function dictV31EnhanceBaseFormPronunciations(resultBox, requestedWord, verbInfo, requestId = AppState.dictionaryRequestId) {
+    if (!resultBox || !verbInfo) return;
+    const requested = dictV11NormalizeWord(requestedWord);
+    const base = dictV11NormalizeWord(verbInfo.base || verbInfo.v1 || '');
+    if (!requested || !base) return;
+
+    const requestedSelector = `#dict-v32-requested-pron-${requested}`;
+    const baseSelector = `#dict-v32-base-pron-${base}`;
+
+    dictV31GetPronunciationMeta(requested).then(meta => {
+        if (!dictV11IsCurrent(requestId)) return;
+        const row = resultBox.querySelector(requestedSelector);
+        dictV31UpdatePronunciationRow(row, meta, requested);
+    }).catch(() => {});
+
+    dictV31GetPronunciationMeta(base).then(meta => {
+        if (!dictV11IsCurrent(requestId)) return;
+        const row = resultBox.querySelector(baseSelector);
+        dictV31UpdatePronunciationRow(row, meta, base);
+    }).catch(() => {});
+}
+
+// Giữ tên cũ để các đoạn V30 nội bộ không bị ảnh hưởng nếu còn gọi trực tiếp.
+function dictBuildBaseFormNotice(requestedWord, verbInfo) {
+    return dictV31BuildBaseFormNotice(requestedWord, verbInfo);
 }
 
 // V30: Luôn đặt thông tin từ gốc ở đầu kết quả, kể cả HTML lấy từ cache cũ hoặc được bổ sung bất đồng bộ.
@@ -1358,15 +1533,17 @@ window.lookupWord = async function(requestedWord = '') {
     // nhưng vẫn giữ nguyên dạng học sinh vừa nhập ở ô tìm kiếm.
     const verbInfo = dictResolveBaseForm(requested);
     const word = verbInfo ? dictV11NormalizeWord(verbInfo.base || verbInfo.v1) : requested;
-    const baseFormNotice = dictBuildBaseFormNotice(requested, verbInfo);
-    const showResult = (html) => {
-        dictV27ApplyBaseFormNotice(resultBox, baseFormNotice, html);
-    };
+    const baseFormNotice = dictV31BuildBaseFormNotice(requested, verbInfo);
 
     input.value = requested;
     dictV11RememberRecent(requested);
 
     const requestId = ++AppState.dictionaryRequestId;
+    const showResult = (html) => {
+        dictV27ApplyBaseFormNotice(resultBox, baseFormNotice, html);
+        // V32: sau khi render, cập nhật riêng IPA/audio của từ đang tra và từ gốc.
+        if (verbInfo) dictV31EnhanceBaseFormPronunciations(resultBox, requested, verbInfo, requestId);
+    };
     if (AppState.dictionaryAbortController) {
         try { AppState.dictionaryAbortController.abort(); } catch(e) {}
     }
