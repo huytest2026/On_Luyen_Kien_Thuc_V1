@@ -527,7 +527,7 @@ window.closeDictionaryModal = function() {
 // Memory -> IndexedDB -> localStorage fallback
 // Progressive loading + stale-while-revalidate
 // ==========================================
-const DICT_V11_CACHE_VERSION = 'v14-offline-10k-hybrid';
+const DICT_V11_CACHE_VERSION = 'v27-baseform-guaranteed';
 const DICT_V11_DB_NAME = 'EnglishDictionaryCacheV15';
 const DICT_V11_STORE = 'entries';
 const DICT_V11_TTL = 1000 * 60 * 60 * 24 * 30; // 30 ngày
@@ -671,7 +671,7 @@ function buildOffline10KHTML(word, entry) {
         </div>`;
 }
 
-async function enrichOfflineWordOnline(word, requestId, controller, resultBox) {
+async function enrichOfflineWordOnline(word, requestId, controller, resultBox, baseFormNotice = '') {
     // V14: cập nhật lớp dữ liệu online lên bản Offline hiện tại; không thay thế
     // toàn bộ kết quả bằng cache cũ trong quá trình này.
     try {
@@ -691,6 +691,10 @@ async function enrichOfflineWordOnline(word, requestId, controller, resultBox) {
         const slot = resultBox.querySelector('#dict-offline-online-slot');
         if (slot) {
             slot.innerHTML = `<div class="dict-v11-meta" style="margin-bottom:8px;">🌐 Đã bổ sung dữ liệu online.</div>${onlineHtml}${vi ? `<div style="padding:10px;background:#e8f5e9;border-radius:7px;margin-top:8px;"><b>🇻🇳 Nghĩa:</b> ${escapeHTML(vi)}</div>` : ''}${familyHtml}`;
+            // V27: Bổ sung online xong vẫn bảo toàn thông tin từ gốc ở đầu kết quả.
+            if (baseFormNotice && !resultBox.querySelector('.dict-base-form-note')) {
+                resultBox.insertAdjacentHTML('afterbegin', baseFormNotice);
+            }
         }
         // Chỉ lưu sau khi đã ghép dữ liệu online vào bản Offline.
         await dictV11Save(word, dictV26GetResultHTMLForCache(resultBox));
@@ -1119,7 +1123,7 @@ function dictV11SetTranslation(meaning, word) {
 }
 
 // ==========================================
-// V25 DICTIONARY BASE-FORM RESOLVER
+// V27 DICTIONARY BASE-FORM RESOLVER — GUARANTEED DISPLAY
 // Nhận diện cả:
 // 1) Động từ bất quy tắc: went -> go, gone -> go
 // 2) Động từ có quy tắc: closed -> close, studied -> study,
@@ -1277,22 +1281,34 @@ function dictResolveBaseForm(value) {
     return dictResolveIrregularVerbForm(value) || dictResolveRegularVerbForm(value);
 }
 
+// V27: Thông tin từ gốc là lớp bắt buộc, độc lập với Offline/RAM/IndexedDB/API.
+// Vì vậy mọi kết quả tra một dạng biến đổi đều phải hiện rõ dạng đã nhập -> từ gốc.
 function dictBuildBaseFormNotice(requestedWord, verbInfo) {
     if (!verbInfo) return '';
 
-    if (verbInfo.resolverType === 'irregular') {
-        return `<div class="dict-base-form-note" style="margin:0 0 10px;padding:10px 12px;background:#fff7df;border:1px solid #f0c36d;border-radius:9px;line-height:1.55;">
-            <div>🔁 <b>Dạng từ bạn tra:</b> <span style="color:#7a4b00;">${escapeHTML(requestedWord)}</span> <span style="color:#777;">(${escapeHTML(verbInfo.matchedType)})</span></div>
-            <div style="margin-top:3px;"><b style="color:#2f5f2f;">Từ gốc (V1): ${escapeHTML(verbInfo.base || verbInfo.v1)}</b></div>
-            <div style="margin-top:3px;color:#555;font-size:.94em;">V1: <b>${escapeHTML(verbInfo.v1)}</b> &nbsp;•&nbsp; V2: <b>${escapeHTML(verbInfo.v2)}</b> &nbsp;•&nbsp; V3: <b>${escapeHTML(verbInfo.v3)}</b></div>
-        </div>`;
-    }
+    const base = verbInfo.base || verbInfo.v1 || '';
+    const type = verbInfo.matchedType || 'dạng biến đổi';
+    const relation = verbInfo.resolverType === 'irregular'
+        ? `${escapeHTML(requestedWord)} là dạng ${escapeHTML(type)} của động từ ${escapeHTML(base)}.`
+        : `${escapeHTML(requestedWord)} là một dạng biến đổi của ${escapeHTML(base)}.`;
 
-    return `<div class="dict-base-form-note" style="margin:0 0 10px;padding:10px 12px;background:#fff7df;border:1px solid #f0c36d;border-radius:9px;line-height:1.55;">
-        <div>🔁 <b>Dạng từ bạn tra:</b> <span style="color:#7a4b00;">${escapeHTML(requestedWord)}</span></div>
-        <div style="margin-top:3px;"><b style="color:#2f5f2f;">Từ gốc (base form): ${escapeHTML(verbInfo.base)}</b></div>
-        <div style="margin-top:3px;color:#666;font-size:.92em;">${escapeHTML(verbInfo.ruleLabel || 'Đã nhận diện dạng biến đổi')}</div>
+    const paradigm = verbInfo.resolverType === 'irregular'
+        ? `<div style="margin-top:6px;color:#555;font-size:.94em;">V1: <b>${escapeHTML(verbInfo.v1 || base)}</b> &nbsp;•&nbsp; V2: <b>${escapeHTML(verbInfo.v2 || '')}</b> &nbsp;•&nbsp; V3: <b>${escapeHTML(verbInfo.v3 || '')}</b></div>`
+        : `<div style="margin-top:6px;color:#666;font-size:.92em;">${escapeHTML(verbInfo.ruleLabel || 'Đã nhận diện dạng biến đổi')}</div>`;
+
+    return `<div class="dict-base-form-note" data-requested-word="${escapeHTML(requestedWord)}" data-base-word="${escapeHTML(base)}" style="margin:0 0 10px;padding:12px 14px;background:#fff7df;border:1px solid #f0c36d;border-radius:9px;line-height:1.55;box-shadow:0 1px 4px rgba(0,0,0,.04);">
+        <div style="font-size:1.02em;">🔄 <b>Dạng bạn tra:</b> <span style="color:#7a4b00;font-weight:700;">${escapeHTML(requestedWord)}</span> <span style="color:#777;">(${escapeHTML(type)})</span></div>
+        <div style="margin-top:4px;font-size:1.08em;"><span style="color:#2f5f2f;font-weight:700;">📌 Từ gốc (V1): ${escapeHTML(base)}</span></div>
+        <div style="margin-top:4px;color:#555;">${relation}</div>
+        ${paradigm}
     </div>`;
+}
+
+// V27: Luôn đặt notice ở đầu kết quả, kể cả HTML lấy từ cache cũ hoặc được bổ sung bất đồng bộ.
+function dictV27ApplyBaseFormNotice(resultBox, baseFormNotice, html) {
+    if (!resultBox) return;
+    const body = String(html || '').replace(/<div class="dict-base-form-note"[\s\S]*?<\/div>\s*(?=<div|$)/g, '');
+    resultBox.innerHTML = (baseFormNotice || '') + body;
 }
 
 function dictV26GetResultHTMLForCache(resultBox) {
@@ -1321,7 +1337,7 @@ window.lookupWord = async function(requestedWord = '') {
     const word = verbInfo ? dictV11NormalizeWord(verbInfo.base || verbInfo.v1) : requested;
     const baseFormNotice = dictBuildBaseFormNotice(requested, verbInfo);
     const showResult = (html) => {
-        resultBox.innerHTML = baseFormNotice + String(html || '');
+        dictV27ApplyBaseFormNotice(resultBox, baseFormNotice, html);
     };
 
     input.value = requested;
@@ -1359,7 +1375,7 @@ window.lookupWord = async function(requestedWord = '') {
             }
         } catch (e) {}
 
-        enrichOfflineWordOnline(word, requestId, controller, resultBox).catch(() => {});
+        enrichOfflineWordOnline(word, requestId, controller, resultBox, baseFormNotice).catch(() => {});
         return;
     }
 
