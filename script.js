@@ -1,12 +1,12 @@
 const API_URL = "https://script.google.com/macros/s/AKfycbxByXvzJFoK6N0jToFqXj1pEMBnGkMyoa7J5r7vEScJTr-ZSOfSw8Wdv8pPg5EyBg/exec";
 
 // ============================================================
-// V33 — SINGLE DICTIONARY ENGINE + ROBUST DUAL-PRONUNCIATION UI
+// V32 — SINGLE DICTIONARY ENGINE + PROFESSIONAL DUAL-PRONUNCIATION UI
 // - Chỉ script.js sở hữu window.lookupWord
 // - Không dùng V17/V18 wrapper, không dùng V28 patch
 // - Không dùng MutationObserver để chèn từ gốc
 // - Từ gốc được tính trước khi tra và được render trong cùng luồng
-// - V33: giữ 2 thẻ TỪ BẠN TRA / TỪ GỐC, IPA + nút nghe riêng và tăng độ ổn định khi dữ liệu phát âm tải chậm
+// - V32: hiển thị tách rõ 2 thẻ: TỪ BẠN TRA và TỪ GỐC, mỗi thẻ có IPA + nút nghe riêng
 // ============================================================
 
 let AppState = {
@@ -537,7 +537,7 @@ window.closeDictionaryModal = function() {
 // Memory -> IndexedDB -> localStorage fallback
 // Progressive loading + stale-while-revalidate
 // ==========================================
-const DICT_V11_CACHE_VERSION = 'v31-single-engine-dual-pronunciation';
+const DICT_V11_CACHE_VERSION = 'v34-hybrid-200k-smart-learning';
 const DICT_V11_DB_NAME = 'EnglishDictionaryCacheV15';
 const DICT_V11_STORE = 'entries';
 const DICT_V11_TTL = 1000 * 60 * 60 * 24 * 30; // 30 ngày
@@ -553,11 +553,11 @@ function dictV11NormalizeWord(value) {
 // Lazy shards + IndexedDB + Memory Cache.
 // Chỉ tải shard cần thiết; sau đó giữ shard trong IndexedDB.
 // ==========================================
-const V16_DICT_DB_NAME = 'EnglishDictionaryOffline50K_V16';
+const V16_DICT_DB_NAME = 'EnglishDictionaryOffline200K_V34';
 const V16_DICT_STORE = 'shards';
-const V16_DICT_VERSION = 1;
-const V16_DICT_PATH = 'dictionary-50k/';
-const V16_DICT_COUNT = 50000;
+const V16_DICT_VERSION = 34;
+const V16_DICT_PATH = 'dictionary-200k/core/';
+const V16_DICT_COUNT = 200000;
 const V16_DICT_MEMORY = new Map();
 const V16_DICT_LOADING = new Map();
 let v16DictDBPromise = null;
@@ -648,20 +648,9 @@ async function getOffline50KEntry(word) {
 }
 
 function v16BackgroundPreload() {
-    if (navigator.connection?.saveData) return;
-    const letters = "abcdefghijklmnopqrstuvwxyz".split("");
-    const run = async () => {
-        for (const letter of letters) {
-            if (!V16_DICT_MEMORY.has(letter)) {
-                await v16LoadShard(letter);
-            }
-        }
-    };
-    if ('requestIdleCallback' in window) {
-        requestIdleCallback(run, { timeout: 2500 });
-    } else {
-        setTimeout(run, 2500);
-    }
+    // V34: 200K is lazy-loaded. Never preload all shards at startup.
+    // Recent words are already cached by the lookup flow and IndexedDB.
+    return;
 }
 
 function buildOffline10KHTML(word, entry) {
@@ -670,12 +659,12 @@ function buildOffline10KHTML(word, entry) {
         <div class="dict-offline-card" style="background:#eef7ff;border:1px solid #b8d8f0;border-radius:10px;padding:14px;margin-bottom:10px;">
             <div class="dict-word-head" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                 <b style="font-size:1.45em;color:#540606;">${escapeHTML(word)}</b>
-                <span style="font-size:.82em;background:#dff1ff;color:#145a86;padding:4px 8px;border-radius:999px;">⚡ OFFLINE 50K</span>
+                <span style="font-size:.82em;background:#dff1ff;color:#145a86;padding:4px 8px;border-radius:999px;">⚡ OFFLINE 200K</span>
                 ${speechButtonHTML(word)}
             </div>
             ${ipa ? `<div style="margin-top:9px;font-size:1.12em;"><b>🔤 IPA:</b> <code style="font-size:1.1em;">${escapeHTML(ipa)}</code></div>` : ''}
             <div style="margin-top:10px;color:#555;font-size:.92em;">
-                📚 Từ này có trong kho offline 50.000 từ. Phiên âm có thể xem và luyện phát âm ngay cả khi không có Internet.
+                📚 Từ này có trong kho offline 200.000 từ. Phiên âm có thể xem và luyện phát âm ngay cả khi không có Internet.
             </div>
             <div id="dict-offline-online-slot" style="margin-top:12px;"></div>
         </div>`;
@@ -841,7 +830,131 @@ function dictV11RememberRecent(word) {
     dictV11ShowRecent();
 }
 
+
+// ==========================================
+// V34 HYBRID SMART DICTIONARY
+// Offline 200K -> Learned local -> Apps Script online -> browser cache.
+// ==========================================
+const DICT_V34_LEARNED_DB = 'EnglishDictionaryLearnedV34';
+const DICT_V34_LEARNED_STORE = 'entries';
+const DICT_V34_BACKEND = (typeof API_URL === 'string' ? API_URL : '');
+let dictV34LearnedDBPromise = null;
+
+function dictV34OpenLearnedDB() {
+    if (dictV34LearnedDBPromise) return dictV34LearnedDBPromise;
+    dictV34LearnedDBPromise = new Promise(resolve => {
+        if (!('indexedDB' in window)) return resolve(null);
+        try {
+            const req = indexedDB.open(DICT_V34_LEARNED_DB, 1);
+            req.onupgradeneeded = () => {
+                const db = req.result;
+                if (!db.objectStoreNames.contains(DICT_V34_LEARNED_STORE)) {
+                    db.createObjectStore(DICT_V34_LEARNED_STORE, { keyPath: 'key' });
+                }
+            };
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => resolve(null);
+        } catch (e) { resolve(null); }
+    });
+    return dictV34LearnedDBPromise;
+}
+async function dictV34LearnedGet(word) {
+    const db = await dictV34OpenLearnedDB();
+    if (!db) return null;
+    const key = dictV11NormalizeWord(word);
+    return new Promise(resolve => {
+        try {
+            const tx = db.transaction(DICT_V34_LEARNED_STORE, 'readonly');
+            const req = tx.objectStore(DICT_V34_LEARNED_STORE).get(key);
+            req.onsuccess = () => resolve(req.result || null);
+            req.onerror = () => resolve(null);
+        } catch (e) { resolve(null); }
+    });
+}
+async function dictV34LearnedSet(word, payload) {
+    const db = await dictV34OpenLearnedDB();
+    if (!db || !payload) return false;
+    const key = dictV11NormalizeWord(word);
+    if (!key) return false;
+    return new Promise(resolve => {
+        try {
+            const tx = db.transaction(DICT_V34_LEARNED_STORE, 'readwrite');
+            tx.objectStore(DICT_V34_LEARNED_STORE).put({ key, payload, savedAt: Date.now() });
+            tx.oncomplete = () => resolve(true);
+            tx.onerror = () => resolve(false);
+            tx.onabort = () => resolve(false);
+        } catch (e) { resolve(false); }
+    });
+}
+function dictV34IsExternalDictionaryUrl(url) {
+    return /api\.dictionaryapi\.dev\/api\/v2\/entries\/en\//i.test(String(url || ''));
+}
+function dictV34IsTranslationUrl(url) {
+    return /api\.mymemory\.translated\.net\/get/i.test(String(url || ''));
+}
+function dictV34WordFromUrl(url) {
+    try {
+        const u = new URL(url, location.href);
+        if (dictV34IsExternalDictionaryUrl(url)) return decodeURIComponent(u.pathname.split('/').pop() || '');
+        if (dictV34IsTranslationUrl(url)) return u.searchParams.get('q') || '';
+    } catch (e) {}
+    return '';
+}
+async function dictV34BackendLookup(word, kind, timeoutMs, externalSignal) {
+    if (!DICT_V34_BACKEND) throw new Error('Chưa cấu hình Apps Script backend');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs || 5000);
+    let removeExternal = null;
+    try {
+        if (externalSignal) {
+            const abortFromParent = () => controller.abort();
+            if (externalSignal.aborted) controller.abort();
+            else {
+                externalSignal.addEventListener('abort', abortFromParent, { once: true });
+                removeExternal = () => externalSignal.removeEventListener('abort', abortFromParent);
+            }
+        }
+        const u = new URL(DICT_V34_BACKEND);
+        u.searchParams.set('action', 'dictionary');
+        u.searchParams.set('word', dictV11NormalizeWord(word));
+        u.searchParams.set('kind', kind || 'full');
+        const res = await fetch(u.toString(), { signal: controller.signal, cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const payload = await res.json();
+        if (!payload || payload.ok === false) throw new Error(payload?.error || 'Không có dữ liệu');
+        return payload;
+    } finally {
+        clearTimeout(timer);
+        if (removeExternal) removeExternal();
+    }
+}
+async function dictV34SmartLookup(word, timeoutMs, externalSignal) {
+    const key = dictV11NormalizeWord(word);
+    const learned = await dictV34LearnedGet(key);
+    if (learned?.payload) return { ...learned.payload, source: 'learned-local' };
+    const payload = await dictV34BackendLookup(key, 'full', timeoutMs, externalSignal);
+    if (payload?.entries || payload?.translation || payload?.ipa) {
+        dictV34LearnedSet(key, payload).catch(() => {});
+    }
+    return payload;
+}
+
 async function dictV11FetchJSON(url, timeoutMs = 4500, externalSignal = null) {
+    const textUrl = String(url || '');
+    // V34: never call third-party dictionary/translation APIs directly from GitHub Pages.
+    if (dictV34IsExternalDictionaryUrl(textUrl)) {
+        const word = dictV34WordFromUrl(textUrl);
+        const payload = await dictV34SmartLookup(word, timeoutMs, externalSignal);
+        return Array.isArray(payload?.entries) ? payload.entries : [];
+    }
+    if (dictV34IsTranslationUrl(textUrl)) {
+        const word = dictV34WordFromUrl(textUrl);
+        const learned = await dictV34LearnedGet(word);
+        let payload = learned?.payload || null;
+        if (!payload || !payload.translation) payload = await dictV34BackendLookup(word, 'translation', timeoutMs, externalSignal);
+        if (payload) dictV34LearnedSet(word, payload).catch(() => {});
+        return { responseData: { translatedText: payload?.translation || '' } };
+    }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let removeExternal = null;
@@ -854,7 +967,7 @@ async function dictV11FetchJSON(url, timeoutMs = 4500, externalSignal = null) {
                 removeExternal = () => externalSignal.removeEventListener('abort', abortFromParent);
             }
         }
-        const res = await fetch(url, { signal: controller.signal, cache: 'force-cache' });
+        const res = await fetch(textUrl, { signal: controller.signal, cache: 'force-cache' });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         return await res.json();
     } finally {
@@ -1388,9 +1501,6 @@ function dictV32EnsureStyles() {
       .dict-v32-relation{margin:0 14px 12px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.7);color:#5b5b5b;font-size:.93rem}
       .dict-v32-paradigm{margin:0 14px 14px;padding:11px 12px;border-radius:10px;background:#fff;border:1px solid #eadfc9;color:#5b5b5b;font-size:.92rem}
       .dict-v32-paradigm b{color:#343434}
-      /* V33: tăng khả năng đọc và tránh nút nghe bị co quá nhỏ */
-      .dict-v32-form-card{min-height:142px}.dict-v32-listen{white-space:nowrap;min-width:88px}
-      .dict-v32-ipa{overflow-wrap:anywhere}.dict-v32-word-row{padding-bottom:2px}
       @media(max-width:620px){.dict-v32-form-grid{grid-template-columns:1fr}.dict-v32-note-head{align-items:flex-start;flex-direction:column}.dict-v32-note-sub{text-align:left}.dict-v32-word{font-size:1.35rem}}
     `;
     document.head.appendChild(style);
@@ -1519,81 +1629,6 @@ function dictV26GetResultHTMLForCache(resultBox) {
     return clone.innerHTML;
 }
 
-
-// ============================================================
-// V33 HARDENING LAYER
-// - Không thêm engine thứ hai, không dùng wrapper/MutationObserver.
-// - Ưu tiên dữ liệu offline 50K, sau đó mới gọi API phát âm.
-// - Chống dữ liệu IPA/audio rỗng hoặc Promise cache bị lỗi.
-// - Giữ nguyên cấu trúc HTML/CSS hiện có để không ảnh hưởng chức năng làm bài.
-// ============================================================
-function dictV33NormalizePronunciationMeta(meta, fallbackWord) {
-    const word = dictV11NormalizeWord(meta?.word || fallbackWord || '');
-    return {
-        word,
-        ipa: String(meta?.ipa || '').trim(),
-        audio: String(meta?.audio || '').trim()
-    };
-}
-
-async function dictV33GetPronunciationMeta(word) {
-    const key = dictV11NormalizeWord(word);
-    if (!key) return { word:'', ipa:'', audio:'' };
-
-    // Reuse the V31/V32 cache, but remove a failed/empty cached request so a later
-    // lookup can retry instead of permanently showing an empty pronunciation.
-    try {
-        const meta = dictV33NormalizePronunciationMeta(
-            await dictV31GetPronunciationMeta(key), key
-        );
-        if (meta.ipa || meta.audio) return meta;
-        DICT_V31_PRON_CACHE.delete(key);
-        return meta;
-    } catch (e) {
-        DICT_V31_PRON_CACHE.delete(key);
-        return { word:key, ipa:'', audio:'' };
-    }
-}
-
-function dictV33UpdatePronunciationCard(row, meta, word) {
-    if (!row) return;
-    const safeMeta = dictV33NormalizePronunciationMeta(meta, word);
-    dictV31UpdatePronunciationRow(row, safeMeta, word);
-
-    const ipaEl = row.querySelector('.dict-v32-ipa');
-    if (ipaEl && !safeMeta.ipa) {
-        ipaEl.textContent = 'Chưa có IPA — vẫn có thể nghe phát âm';
-    }
-}
-
-function dictV31EnhanceBaseFormPronunciations(resultBox, requestedWord, verbInfo, requestId = AppState.dictionaryRequestId) {
-    if (!resultBox || !verbInfo) return;
-    const requested = dictV11NormalizeWord(requestedWord);
-    const base = dictV11NormalizeWord(verbInfo.base || verbInfo.v1 || '');
-    if (!requested || !base) return;
-
-    const requestedSelector = `#dict-v32-requested-pron-${requested}`;
-    const baseSelector = `#dict-v32-base-pron-${base}`;
-
-    // V33: tải song song nhưng cập nhật từng thẻ độc lập; một thẻ lỗi không làm mất thẻ kia.
-    Promise.allSettled([
-        dictV33GetPronunciationMeta(requested),
-        dictV33GetPronunciationMeta(base)
-    ]).then(([requestedResult, baseResult]) => {
-        if (!dictV11IsCurrent(requestId)) return;
-
-        const requestedRow = resultBox.querySelector(requestedSelector);
-        const baseRow = resultBox.querySelector(baseSelector);
-
-        if (requestedResult.status === 'fulfilled') {
-            dictV33UpdatePronunciationCard(requestedRow, requestedResult.value, requested);
-        }
-        if (baseResult.status === 'fulfilled') {
-            dictV33UpdatePronunciationCard(baseRow, baseResult.value, base);
-        }
-    }).catch(() => {});
-}
-
 window.lookupWord = async function(requestedWord = '') {
     const input = document.getElementById('dict-input');
     const resultBox = document.getElementById('dict-result');
@@ -1619,7 +1654,7 @@ window.lookupWord = async function(requestedWord = '') {
     const requestId = ++AppState.dictionaryRequestId;
     const showResult = (html) => {
         dictV27ApplyBaseFormNotice(resultBox, baseFormNotice, html);
-        // V33: sau khi render, cập nhật riêng IPA/audio của từ đang tra và từ gốc theo luồng ổn định hơn.
+        // V32: sau khi render, cập nhật riêng IPA/audio của từ đang tra và từ gốc.
         if (verbInfo) dictV31EnhanceBaseFormPronunciations(resultBox, requested, verbInfo, requestId);
     };
     if (AppState.dictionaryAbortController) {
@@ -1634,7 +1669,7 @@ window.lookupWord = async function(requestedWord = '') {
         showResult(buildOffline10KHTML(word, offlineEntry));
         const offlineMeta = document.createElement('div');
         offlineMeta.className = 'dict-v11-meta';
-        offlineMeta.innerHTML = `<span class="cache">⚡ Offline 50K · ${window.OFFLINE_DICTIONARY_50K_COUNT || 50000} từ</span>`;
+        offlineMeta.innerHTML = `<span class="cache">⚡ Offline 200K · ${window.OFFLINE_DICTIONARY_50K_COUNT || 50000} từ</span>`;
         resultBox.prepend(offlineMeta);
 
         try {
@@ -1648,7 +1683,7 @@ window.lookupWord = async function(requestedWord = '') {
                 showResult(richHtml);
                 const meta = document.createElement('div');
                 meta.className = 'dict-v11-meta';
-                meta.innerHTML = `<span class="cache">⚡ Offline 50K + Cache ${cachedRich.source === 'indexeddb' ? 'IndexedDB' : 'trình duyệt'}</span>`;
+                meta.innerHTML = `<span class="cache">⚡ Offline 200K + Cache ${cachedRich.source === 'indexeddb' ? 'IndexedDB' : 'trình duyệt'}</span>`;
                 resultBox.prepend(meta);
             }
         } catch (e) {}
