@@ -1119,9 +1119,11 @@ function dictV11SetTranslation(meaning, word) {
 }
 
 // ==========================================
-// V24 DICTIONARY BASE-FORM RESOLVER
-// Nếu tra V2/V3 của động từ bất quy tắc, tự động nhận diện V1
-// Ví dụ: went -> go, gone -> go
+// V25 DICTIONARY BASE-FORM RESOLVER
+// Nhận diện cả:
+// 1) Động từ bất quy tắc: went -> go, gone -> go
+// 2) Động từ có quy tắc: closed -> close, studied -> study,
+//    stopped -> stop, making -> make, studies -> study...
 // ==========================================
 function dictSplitVerbForms(value) {
     return String(value || '')
@@ -1140,21 +1142,132 @@ function dictResolveIrregularVerbForm(value) {
         const v3Forms = dictSplitVerbForms(item.v3);
 
         if (v2Forms.includes(query)) {
-            return { ...item, matched: query, matchedType: 'V2' };
+            return {
+                ...item,
+                base: v1,
+                matched: query,
+                matchedType: 'V2',
+                resolverType: 'irregular'
+            };
         }
         if (v3Forms.includes(query)) {
-            return { ...item, matched: query, matchedType: 'V3' };
+            return {
+                ...item,
+                base: v1,
+                matched: query,
+                matchedType: 'V3',
+                resolverType: 'irregular'
+            };
         }
     }
     return null;
 }
 
+function dictLooksLikeDoubledFinalConsonant(stem) {
+    if (!stem || stem.length < 2) return false;
+    const last = stem[stem.length - 1];
+    const prev = stem[stem.length - 2];
+    return last === prev && /[b-df-hj-np-tv-z]/.test(last);
+}
+
+function dictResolveRegularVerbForm(value) {
+    const query = dictV11NormalizeWord(value).replace(/[^a-z']/g, '');
+    if (query.length < 4) return null;
+
+    const candidates = [];
+    const add = (base, label) => {
+        base = dictV11NormalizeWord(base);
+        if (!base || base.length < 2 || base === query) return;
+        if (!candidates.some(x => x.base === base)) candidates.push({ base, label });
+    };
+
+    // Một số dạng đặc biệt phổ biến.
+    const special = {
+        lying: 'lie', dying: 'die', tying: 'tie',
+        goes: 'go', does: 'do', has: 'have'
+    };
+    if (special[query]) {
+        return {
+            base: special[query],
+            matched: query,
+            matchedType: 'dạng biến đổi',
+            resolverType: 'regular',
+            ruleLabel: 'dạng biến đổi đặc biệt'
+        };
+    }
+
+    // -ied -> -y: studied -> study
+    if (query.endsWith('ied') && query.length > 4) {
+        add(query.slice(0, -3) + 'y', '-ied → -y');
+    }
+
+    // -ed: closed -> close; worked -> work; stopped -> stop
+    if (query.endsWith('ed') && query.length > 4) {
+        const stem = query.slice(0, -2);
+        if (stem.endsWith('i') && stem.length > 2) add(stem.slice(0, -1) + 'y', '-ied → -y');
+        if (dictLooksLikeDoubledFinalConsonant(stem)) add(stem.slice(0, -1), 'bỏ phụ âm kép + -ed');
+        // closed -> close phải được ưu tiên trước close-less candidate.
+        add(stem + 'e', '+e trước -ed');
+        add(stem, 'bỏ -ed');
+    }
+
+    // -ing: making -> make; running -> run
+    if (query.endsWith('ing') && query.length > 5) {
+        const stem = query.slice(0, -3);
+        if (dictLooksLikeDoubledFinalConsonant(stem)) add(stem.slice(0, -1), 'bỏ phụ âm kép + -ing');
+        add(stem + 'e', '+e trước -ing');
+        add(stem, 'bỏ -ing');
+    }
+
+    // -ies: studies -> study
+    if (query.endsWith('ies') && query.length > 4) {
+        add(query.slice(0, -3) + 'y', '-ies → -y');
+    }
+
+    // -es: watches -> watch; goes đã xử lý phía trên
+    if (query.endsWith('es') && query.length > 4) {
+        add(query.slice(0, -2), 'bỏ -es');
+        if (/(ches|shes|sses|xes|zes|oes)$/.test(query)) add(query.slice(0, -2), 'bỏ -es');
+    }
+
+    // -s: works -> work
+    if (query.endsWith('s') && query.length > 3 && !query.endsWith('ss')) {
+        add(query.slice(0, -1), 'bỏ -s');
+    }
+
+    if (!candidates.length) return null;
+
+    // Chọn ứng viên ưu tiên. Với "closed", ứng viên đầu tiên là "close".
+    const best = candidates[0];
+    return {
+        base: best.base,
+        matched: query,
+        matchedType: 'dạng biến đổi',
+        resolverType: 'regular',
+        ruleLabel: best.label,
+        candidates
+    };
+}
+
+function dictResolveBaseForm(value) {
+    return dictResolveIrregularVerbForm(value) || dictResolveRegularVerbForm(value);
+}
+
 function dictBuildBaseFormNotice(requestedWord, verbInfo) {
     if (!verbInfo) return '';
+
+    if (verbInfo.resolverType === 'irregular') {
+        return `<div class="dict-base-form-note" style="margin:0 0 10px;padding:10px 12px;background:#fff7df;border:1px solid #f0c36d;border-radius:9px;line-height:1.55;">
+            <div>🔁 <b>Dạng từ bạn tra:</b> <span style="color:#7a4b00;">${escapeHTML(requestedWord)}</span> <span style="color:#777;">(${escapeHTML(verbInfo.matchedType)})</span></div>
+            <div style="margin-top:3px;"><b style="color:#2f5f2f;">Từ gốc (V1): ${escapeHTML(verbInfo.base || verbInfo.v1)}</b></div>
+            <div style="margin-top:3px;color:#555;font-size:.94em;">V1: <b>${escapeHTML(verbInfo.v1)}</b> &nbsp;•&nbsp; V2: <b>${escapeHTML(verbInfo.v2)}</b> &nbsp;•&nbsp; V3: <b>${escapeHTML(verbInfo.v3)}</b></div>
+        </div>`;
+    }
+
     return `<div class="dict-base-form-note" style="margin:0 0 10px;padding:10px 12px;background:#fff7df;border:1px solid #f0c36d;border-radius:9px;line-height:1.55;">
-        <div>🔁 <b>Dạng từ bạn tra:</b> <span style="color:#7a4b00;">${escapeHTML(requestedWord)}</span> <span style="color:#777;">(${escapeHTML(verbInfo.matchedType)})</span></div>
-        <div style="margin-top:3px;"><b style="color:#2f5f2f;">Từ gốc (V1): ${escapeHTML(verbInfo.v1)}</b></div>
-        <div style="margin-top:3px;color:#555;font-size:.94em;">V1: <b>${escapeHTML(verbInfo.v1)}</b> &nbsp;•&nbsp; V2: <b>${escapeHTML(verbInfo.v2)}</b> &nbsp;•&nbsp; V3: <b>${escapeHTML(verbInfo.v3)}</b></div>
+        <div>🔁 <b>Dạng từ bạn tra:</b> <span style="color:#7a4b00;">${escapeHTML(requestedWord)}</span></div>
+        <div style="margin-top:3px;"><b style="color:#2f5f2f;">Từ gốc (base form): ${escapeHTML(verbInfo.base)}</b></div>
+        <div style="margin-top:3px;color:#666;font-size:.92em;">${escapeHTML(verbInfo.ruleLabel || 'Đã nhận diện dạng biến đổi')}</div>
     </div>`;
 }
 
@@ -1170,10 +1283,11 @@ window.lookupWord = async function(requestedWord = '') {
         return;
     }
 
-    // Nếu học sinh tra V2/V3 của động từ bất quy tắc, tra nghĩa theo V1
+    // Nếu học sinh tra một dạng đã biến đổi, tự nhận diện từ gốc:
+    // went/gone -> go, closed -> close, studied -> study...
     // nhưng vẫn giữ nguyên dạng học sinh vừa nhập ở ô tìm kiếm.
-    const verbInfo = dictResolveIrregularVerbForm(requested);
-    const word = verbInfo ? dictV11NormalizeWord(verbInfo.v1) : requested;
+    const verbInfo = dictResolveBaseForm(requested);
+    const word = verbInfo ? dictV11NormalizeWord(verbInfo.base || verbInfo.v1) : requested;
     const baseFormNotice = dictBuildBaseFormNotice(requested, verbInfo);
     const showResult = (html) => {
         resultBox.innerHTML = baseFormNotice + String(html || '');
