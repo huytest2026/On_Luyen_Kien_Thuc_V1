@@ -1,8 +1,0 @@
-{
-  "version": "V34",
-  "targetCount": 200000,
-  "corePath": "core/",
-  "shards": "a.json ... z.json, other.json",
-  "strategy": "lazy-load + IndexedDB",
-  "note": "Copy existing 50K shards here first, then expand with a validated source; do not fabricate 150K entries."
-}
