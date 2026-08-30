@@ -527,7 +527,7 @@ window.closeDictionaryModal = function() {
 // Memory -> IndexedDB -> localStorage fallback
 // Progressive loading + stale-while-revalidate
 // ==========================================
-const DICT_V11_CACHE_VERSION = 'v28-baseform-visible';
+const DICT_V11_CACHE_VERSION = 'v27-baseform-guaranteed';
 const DICT_V11_DB_NAME = 'EnglishDictionaryCacheV15';
 const DICT_V11_STORE = 'entries';
 const DICT_V11_TTL = 1000 * 60 * 60 * 24 * 30; // 30 ngày
@@ -697,7 +697,6 @@ async function enrichOfflineWordOnline(word, requestId, controller, resultBox, b
             }
         }
         // Chỉ lưu sau khi đã ghép dữ liệu online vào bản Offline.
-        dictV28EnsureBaseFormNotice(resultBox, baseFormNotice);
         await dictV11Save(word, dictV26GetResultHTMLForCache(resultBox));
         return true;
     } catch(e) {
@@ -1282,7 +1281,7 @@ function dictResolveBaseForm(value) {
     return dictResolveIrregularVerbForm(value) || dictResolveRegularVerbForm(value);
 }
 
-// V28: Thông tin từ gốc là lớp bắt buộc, độc lập với Offline/RAM/IndexedDB/API.
+// V29: Thông tin từ gốc là lớp bắt buộc, độc lập với Offline/RAM/IndexedDB/API.
 // Vì vậy mọi kết quả tra một dạng biến đổi đều phải hiện rõ dạng đã nhập -> từ gốc.
 function dictBuildBaseFormNotice(requestedWord, verbInfo) {
     if (!verbInfo) return '';
@@ -1305,34 +1304,22 @@ function dictBuildBaseFormNotice(requestedWord, verbInfo) {
     </div>`;
 }
 
-// V27: Luôn đặt notice ở đầu kết quả, kể cả HTML lấy từ cache cũ hoặc được bổ sung bất đồng bộ.
-// V28: dùng DOM thật để ghép notice, không dùng regex cắt HTML lồng nhau.
-function dictV28ApplyBaseFormNotice(resultBox, baseFormNotice, html) {
-    if (!resultBox) return;
-    const holder = document.createElement('div');
-    holder.innerHTML = String(html || '');
-    holder.querySelectorAll('.dict-base-form-note').forEach(el => el.remove());
-    const frag = document.createDocumentFragment();
-    if (baseFormNotice) {
-        const noticeHolder = document.createElement('div');
-        noticeHolder.innerHTML = baseFormNotice;
-        while (noticeHolder.firstChild) frag.appendChild(noticeHolder.firstChild);
-    }
-    while (holder.firstChild) frag.appendChild(holder.firstChild);
-    resultBox.replaceChildren(frag);
-}
-
-// Tương thích tên cũ nếu còn lời gọi V27.
+// V29: Luôn đặt notice ở đầu kết quả, kể cả HTML lấy từ cache cũ hoặc được bổ sung bất đồng bộ.
 function dictV27ApplyBaseFormNotice(resultBox, baseFormNotice, html) {
-    dictV28ApplyBaseFormNotice(resultBox, baseFormNotice, html);
+    if (!resultBox) return;
+    const body = String(html || '').replace(/<div class="dict-base-form-note"[\s\S]*?<\/div>\s*(?=<div|$)/g, '');
+    resultBox.innerHTML = (baseFormNotice || '') + body;
 }
 
-function dictV28EnsureBaseFormNotice(resultBox, baseFormNotice) {
-    if (!resultBox || !baseFormNotice || resultBox.querySelector('.dict-base-form-note')) return;
-    const holder = document.createElement('div');
-    holder.innerHTML = baseFormNotice;
-    const note = holder.firstElementChild;
-    if (note) resultBox.prepend(note);
+// V29: logic render cuối cùng đã tích hợp trực tiếp. Hàm này được dùng khi kết quả bị script khác ghi đè.
+function dictV28ForceBaseFormNotice(resultBox, requestedWord) {
+    if (!resultBox) return;
+    const requested = dictV11NormalizeWord(requestedWord || '');
+    if (!requested) return;
+    const info = dictResolveBaseForm(requested);
+    const notice = dictBuildBaseFormNotice(requested, info);
+    resultBox.querySelectorAll('.dict-base-form-note').forEach(el => el.remove());
+    if (notice) resultBox.insertAdjacentHTML('afterbegin', notice);
 }
 
 function dictV26GetResultHTMLForCache(resultBox) {
@@ -1361,7 +1348,7 @@ window.lookupWord = async function(requestedWord = '') {
     const word = verbInfo ? dictV11NormalizeWord(verbInfo.base || verbInfo.v1) : requested;
     const baseFormNotice = dictBuildBaseFormNotice(requested, verbInfo);
     const showResult = (html) => {
-        dictV28ApplyBaseFormNotice(resultBox, baseFormNotice, html);
+        dictV27ApplyBaseFormNotice(resultBox, baseFormNotice, html);
     };
 
     input.value = requested;
@@ -1378,7 +1365,6 @@ window.lookupWord = async function(requestedWord = '') {
     const offlineEntry = await getOffline50KEntry(word);
     if (offlineEntry) {
         showResult(buildOffline10KHTML(word, offlineEntry));
-        dictV28EnsureBaseFormNotice(resultBox, baseFormNotice);
         const offlineMeta = document.createElement('div');
         offlineMeta.className = 'dict-v11-meta';
         offlineMeta.innerHTML = `<span class="cache">⚡ Offline 50K · ${window.OFFLINE_DICTIONARY_50K_COUNT || 50000} từ</span>`;
@@ -1393,7 +1379,6 @@ window.lookupWord = async function(requestedWord = '') {
                 richHtml.includes('dict-translation-slot');
             if (cachedRich && cachedRich.fresh && isRichCache) {
                 showResult(richHtml);
-                dictV28EnsureBaseFormNotice(resultBox, baseFormNotice);
                 const meta = document.createElement('div');
                 meta.className = 'dict-v11-meta';
                 meta.innerHTML = `<span class="cache">⚡ Offline 50K + Cache ${cachedRich.source === 'indexeddb' ? 'IndexedDB' : 'trình duyệt'}</span>`;
@@ -1409,7 +1394,6 @@ window.lookupWord = async function(requestedWord = '') {
     const memoryHtml = AppState.dictionaryCache.get(cleanKey(word));
     if (typeof memoryHtml === 'string' && memoryHtml) {
         showResult(memoryHtml);
-        dictV28EnsureBaseFormNotice(resultBox, baseFormNotice);
         const meta = document.createElement('div');
         meta.className = 'dict-v11-meta';
         meta.innerHTML = '<span class="cache">⚡ Hiển thị từ bộ nhớ đệm</span>';
@@ -1423,7 +1407,6 @@ window.lookupWord = async function(requestedWord = '') {
     if (!dictV11IsCurrent(requestId)) return;
     if (persistent && persistent.html) {
         showResult(persistent.html);
-        dictV28EnsureBaseFormNotice(resultBox, baseFormNotice);
         const meta = document.createElement('div');
         meta.className = 'dict-v11-meta';
         meta.innerHTML = `<span class="cache">⚡ Cache ${persistent.source === 'indexeddb' ? 'IndexedDB' : 'trình duyệt'}</span>`;
