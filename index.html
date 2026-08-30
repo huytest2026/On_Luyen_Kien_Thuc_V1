@@ -587,5 +587,108 @@ body.dark-mode .dict-v11-recent button { background:#2d2d2d; color:#eee; border-
 <script src="v17-dictionary.js"></script>
 <script src="v18.3-dictionary.js"></script>
 
+<!-- V28: chạy SAU TOÀN BỘ script từ điển để không bị V17/V18 ghi đè lookupWord -->
+<script>
+(function dictV28InstallFinalBaseFormGuard(){
+    function normalize(v){
+        if (typeof window.dictV11NormalizeWord === 'function') return window.dictV11NormalizeWord(v);
+        return String(v || '').trim().toLowerCase();
+    }
+
+    function resolve(v){
+        if (typeof window.dictResolveBaseForm === 'function') return window.dictResolveBaseForm(v);
+        return null;
+    }
+
+    function buildNotice(requested){
+        var info = resolve(requested);
+        if (!info) return '';
+        if (typeof window.dictBuildBaseFormNotice === 'function') {
+            return window.dictBuildBaseFormNotice(requested, info);
+        }
+        var base = info.base || info.v1 || '';
+        var type = info.matchedType || 'dạng biến đổi';
+        var v1 = info.v1 || base;
+        var v2 = info.v2 || '';
+        var v3 = info.v3 || '';
+        return '<div class="dict-base-form-note" style="margin:0 0 10px;padding:12px 14px;background:#fff7df;border:1px solid #f0c36d;border-radius:9px;line-height:1.55;">' +
+            '<div>🔄 <b>Dạng bạn tra:</b> <b>' + requested + '</b> <span style="color:#777;">(' + type + ')</span></div>' +
+            '<div style="margin-top:4px;font-size:1.08em;color:#2f5f2f;font-weight:700;">📌 Từ gốc (V1): ' + base + '</div>' +
+            '<div style="margin-top:6px;color:#555;">V1: <b>' + v1 + '</b> &nbsp;•&nbsp; V2: <b>' + v2 + '</b> &nbsp;•&nbsp; V3: <b>' + v3 + '</b></div>' +
+        '</div>';
+    }
+
+    function removeOldNotes(box){
+        box.querySelectorAll('.dict-base-form-note').forEach(function(el){ el.remove(); });
+    }
+
+    function applyNow(requested){
+        var box = document.getElementById('dict-result');
+        if (!box) return;
+        var word = normalize(requested || (document.getElementById('dict-input') || {}).value);
+        if (!word) return;
+        var notice = buildNotice(word);
+        removeOldNotes(box);
+        if (!notice) return;
+        box.insertAdjacentHTML('afterbegin', notice);
+    }
+
+    function wrapFinalLookup(){
+        var current = window.lookupWord;
+        if (typeof current !== 'function' || current.__dictV28Wrapped) return false;
+
+        window.lookupWord = async function(requestedWord){
+            var input = document.getElementById('dict-input');
+            var requested = normalize(requestedWord || (input && input.value));
+            var resultBox = document.getElementById('dict-result');
+            var observer = null;
+            var locked = false;
+
+            function ensure(){
+                if (locked) return;
+                locked = true;
+                try { applyNow(requested); } finally { locked = false; }
+            }
+
+            if (resultBox && window.MutationObserver) {
+                observer = new MutationObserver(function(){ ensure(); });
+                observer.observe(resultBox, { childList:true, subtree:true });
+            }
+
+            try {
+                var out = await current.apply(this, arguments);
+                ensure();
+                setTimeout(ensure, 0);
+                setTimeout(ensure, 120);
+                setTimeout(ensure, 700);
+                return out;
+            } finally {
+                setTimeout(function(){ if (observer) observer.disconnect(); }, 1800);
+            }
+        };
+        window.lookupWord.__dictV28Wrapped = true;
+        window.lookupWord.__dictV28Original = current;
+        return true;
+    }
+
+    // Vì V17/V18 có thể ghi đè lookupWord, kiểm tra lại nhiều lần sau khi trang nạp xong.
+    var tries = 0;
+    var timer = setInterval(function(){
+        wrapFinalLookup();
+        tries++;
+        if (tries >= 20) clearInterval(timer);
+    }, 100);
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function(){
+            wrapFinalLookup();
+            setTimeout(wrapFinalLookup, 300);
+        }, { once:true });
+    } else {
+        wrapFinalLookup();
+    }
+})();
+</script>
+
 </body>
 </html>
