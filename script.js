@@ -537,7 +537,7 @@ window.closeDictionaryModal = function() {
 // Memory -> IndexedDB -> localStorage fallback
 // Progressive loading + stale-while-revalidate
 // ==========================================
-const DICT_V11_CACHE_VERSION = 'v34-hybrid-200k-smart-learning';
+const DICT_V11_CACHE_VERSION = 'v36-dual-dictionary-50k-plus-200k';
 const DICT_V11_DB_NAME = 'EnglishDictionaryCacheV15';
 const DICT_V11_STORE = 'entries';
 const DICT_V11_TTL = 1000 * 60 * 60 * 24 * 30; // 30 ngày
@@ -553,11 +553,29 @@ function dictV11NormalizeWord(value) {
 // Lazy shards + IndexedDB + Memory Cache.
 // Chỉ tải shard cần thiết; sau đó giữ shard trong IndexedDB.
 // ==========================================
-const V16_DICT_DB_NAME = 'EnglishDictionaryOffline200K_V34';
+// V36 DUAL OFFLINE DICTIONARY – 50K GỐC + 200K BỔ SUNG
+// Không cần ghép vật lý. Tra ưu tiên 50K, sau đó 200K.
+// Mỗi kho có cache IndexedDB riêng để tránh dùng nhầm shard cũ.
+const V16_DICT_DB_NAME = 'EnglishDictionaryOfflineV36Dual';
 const V16_DICT_STORE = 'shards';
-const V16_DICT_VERSION = 34;
-const V16_DICT_PATH = 'dictionary-200k/core/';
-const V16_DICT_COUNT = 200000;
+const V16_DICT_VERSION = 36;
+
+const V36_DICT_SOURCES = [
+    {
+        id: 'base50k',
+        label: 'Offline 50K',
+        path: 'dictionary-50k/',
+        count: 50000
+    },
+    {
+        id: 'plus200k',
+        label: 'Offline 200K',
+        path: 'dictionary-200k/core/',
+        count: 200000
+    }
+];
+
+const V16_DICT_COUNT = V36_DICT_SOURCES.reduce((sum, source) => sum + source.count, 0);
 const V16_DICT_MEMORY = new Map();
 const V16_DICT_LOADING = new Map();
 let v16DictDBPromise = null;
@@ -585,26 +603,50 @@ function v16ShardForWord(word) {
     return /^[a-z]$/.test(c) ? c : 'other';
 }
 
-async function v16ReadShardFromIDB(shard) {
+function v36SourceById(sourceId) {
+    return V36_DICT_SOURCES.find(source => source.id === sourceId) || null;
+}
+
+function v36ShardKey(sourceId, shard) {
+    return sourceId + ':' + shard;
+}
+
+async function v16ReadShardFromIDB(sourceId, shard) {
     const db = await v16OpenDictDB();
     if (!db) return null;
     return new Promise(resolve => {
         try {
             const tx = db.transaction(V16_DICT_STORE, 'readonly');
-            const req = tx.objectStore(V16_DICT_STORE).get(shard);
-            req.onsuccess = () => resolve(req.result?.data || null);
+            const req = tx.objectStore(V16_DICT_STORE).get(v36ShardKey(sourceId, shard));
+            req.onsuccess = () => {
+                const result = req.result;
+                if (!result || result.version !== V16_DICT_VERSION || result.sourceId !== sourceId) {
+                    resolve(null);
+                    return;
+                }
+                resolve(result.data || null);
+            };
             req.onerror = () => resolve(null);
-        } catch (e) { resolve(null); }
+        } catch (e) {
+            resolve(null);
+        }
     });
 }
 
-async function v16WriteShardToIDB(shard, data) {
+async function v16WriteShardToIDB(sourceId, shard, data) {
     const db = await v16OpenDictDB();
     if (!db) return;
     try {
         await new Promise(resolve => {
             const tx = db.transaction(V16_DICT_STORE, 'readwrite');
-            tx.objectStore(V16_DICT_STORE).put({ id: shard, data, savedAt: Date.now() });
+            tx.objectStore(V16_DICT_STORE).put({
+                id: v36ShardKey(sourceId, shard),
+                sourceId,
+                shard,
+                version: V16_DICT_VERSION,
+                data,
+                savedAt: Date.now()
+            });
             tx.oncomplete = () => resolve();
             tx.onerror = () => resolve();
             tx.onabort = () => resolve();
@@ -612,45 +654,117 @@ async function v16WriteShardToIDB(shard, data) {
     } catch (e) {}
 }
 
-async function v16LoadShard(shard) {
-    if (V16_DICT_MEMORY.has(shard)) return V16_DICT_MEMORY.get(shard);
-    if (V16_DICT_LOADING.has(shard)) return V16_DICT_LOADING.get(shard);
+async function v16LoadShard(sourceId, shard) {
+    const source = v36SourceById(sourceId);
+    if (!source) return null;
+
+    const memoryKey = v36ShardKey(sourceId, shard);
+    if (V16_DICT_MEMORY.has(memoryKey)) return V16_DICT_MEMORY.get(memoryKey);
+    if (V16_DICT_LOADING.has(memoryKey)) return V16_DICT_LOADING.get(memoryKey);
 
     const promise = (async () => {
-        let data = await v16ReadShardFromIDB(shard);
+        let data = await v16ReadShardFromIDB(sourceId, shard);
+
         if (!data) {
             try {
-                const response = await fetch(`${V16_DICT_PATH}${shard}.json`, { cache: 'force-cache' });
+                const response = await fetch(`${source.path}${shard}.json`, {
+                    cache: 'force-cache'
+                });
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 data = await response.json();
-                v16WriteShardToIDB(shard, data).catch(() => {});
+                v16WriteShardToIDB(sourceId, shard, data).catch(() => {});
             } catch (e) {
                 data = null;
             }
         }
-        if (data) V16_DICT_MEMORY.set(shard, data);
+
+        if (data) V16_DICT_MEMORY.set(memoryKey, data);
         return data;
     })();
 
-    V16_DICT_LOADING.set(shard, promise);
+    V16_DICT_LOADING.set(memoryKey, promise);
     try {
         return await promise;
     } finally {
-        V16_DICT_LOADING.delete(shard);
+        V16_DICT_LOADING.delete(memoryKey);
     }
 }
 
-async function getOffline50KEntry(word) {
+function v36GetEntryFromShard(data, key) {
+    if (!data) return null;
+
+    if (Array.isArray(data)) {
+        return data.find(item => {
+            const candidate = item?.word || item?.w || item?.headword || item?.term || item?.head;
+            return dictV11NormalizeWord(candidate) === key;
+        }) || null;
+    }
+
+    if (data[key] != null) return data[key];
+    if (data.words && data.words[key] != null) return data.words[key];
+
+    return null;
+}
+
+// V36: tra 50K trước, nếu không có thì mới tra 200K.
+// Nhờ vậy giữ nguyên ưu tiên và dữ liệu gốc của kho 50K.
+async function getOffline250KEntry(word) {
     const key = dictV11NormalizeWord(word);
     if (!key) return null;
-    const data = await v16LoadShard(v16ShardForWord(key));
-    return data?.[key] || null;
+
+    const shard = v16ShardForWord(key);
+
+    for (const source of V36_DICT_SOURCES) {
+        const data = await v16LoadShard(source.id, shard);
+        const entry = v36GetEntryFromShard(data, key);
+
+        if (entry) {
+            // Gắn metadata nhẹ để phần giao diện/debug biết dữ liệu đến từ kho nào.
+            if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+                try {
+                    if (!entry.__v36Source) {
+                        Object.defineProperty(entry, '__v36Source', {
+                            value: source.id,
+                            configurable: true,
+                            enumerable: false
+                        });
+                    }
+                } catch (e) {}
+            }
+            return entry;
+        }
+    }
+
+    return null;
+}
+
+// Tương thích ngược với các phần V16/V17 cũ đang gọi tên hàm 50K.
+async function getOffline50KEntry(word) {
+    return getOffline250KEntry(word);
 }
 
 function v16BackgroundPreload() {
-    // V34: 200K is lazy-loaded. Never preload all shards at startup.
-    // Recent words are already cached by the lookup flow and IndexedDB.
-    return;
+    if (navigator.connection?.saveData) return;
+
+    const letters = "abcdefghijklmnopqrstuvwxyz".split("");
+
+    const run = async () => {
+        // Chỉ preload kho 50K. Kho 200K vẫn lazy-load theo nhu cầu,
+        // tránh làm trình duyệt tải một lượng dữ liệu lớn ngay khi mở trang.
+        const baseSource = V36_DICT_SOURCES[0];
+        for (const letter of letters) {
+            const memoryKey = v36ShardKey(baseSource.id, letter);
+            if (!V16_DICT_MEMORY.has(memoryKey)) {
+                await v16LoadShard(baseSource.id, letter);
+            }
+        }
+    };
+
+    if ('requestIdleCallback' in window) {
+        requestIdleCallback(run, { timeout: 2500 });
+    } else {
+        setTimeout(run, 2500);
+    }
 }
 
 function buildOffline10KHTML(word, entry) {
@@ -1454,7 +1568,7 @@ async function dictV31GetPronunciationMeta(word) {
 
     const promise = (async () => {
         try {
-            const offline = await getOffline50KEntry(key);
+            const offline = await getOffline250KEntry(key);
             if (offline?.ipa) {
                 return { word:key, ipa:String(offline.ipa).trim(), audio:String(offline.audio || '').trim() };
             }
@@ -4299,3 +4413,14 @@ window.printPDF = function() {
 };
 
 window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e) {} });
+
+
+// ============================================================
+// V36 DUAL DICTIONARY INFO
+// ============================================================
+window.DictionaryV36 = {
+    version: 'V36',
+    sources: V36_DICT_SOURCES.map(source => ({ ...source })),
+    totalConfiguredEntries: V16_DICT_COUNT,
+    lookupOrder: V36_DICT_SOURCES.map(source => source.label)
+};
