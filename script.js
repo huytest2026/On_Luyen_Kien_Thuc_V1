@@ -816,9 +816,8 @@ async function enrichOfflineWordOnline(word, requestId, controller, resultBox, b
     // V36.2: dictionary và nghĩa tiếng Việt được tải độc lập.
     // Vì vậy nếu API từ điển tạm lỗi, nghĩa tiếng Việt vẫn có thể xuất hiện.
     try {
-        const url = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`;
         let data = null;
-        try { data = await dictV11FetchJSON(url, 4500, controller.signal); } catch (e) {}
+        try { data = await dictV11FetchJSON(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`, 4500, controller.signal); } catch (e) {}
         if (!dictV11IsCurrent(requestId)) return false;
 
         let vi = '';
@@ -1244,9 +1243,8 @@ async function enrichFamilyItem(item) {
     if (cached && cached.__familyMeta) return cached.__familyMeta;
 
     try {
-        const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(item.word)}`);
-        if (res.ok) {
-            const data = await res.json();
+        const data = await dictV11FetchJSON(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(item.word)}`, 4500);
+        {
             const entries = Array.isArray(data) ? data : [];
             const meanings = entries.flatMap(e => Array.isArray(e.meanings) ? e.meanings : []);
             const first = meanings.find(m => m && m.definitions && m.definitions.length);
@@ -1607,8 +1605,7 @@ async function dictV31GetPronunciationMeta(word) {
         } catch (e) {}
 
         try {
-            const url = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(key)}`;
-            const data = await dictV11FetchJSON(url, 3500);
+            const data = await dictV11FetchJSON(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(key)}`, 3500);
             const meta = dictV31ExtractPronunciationMeta(data, key);
             return meta;
         } catch (e) {
@@ -1869,10 +1866,9 @@ window.lookupWord = async function(requestedWord = '') {
 
     showResult(`<div class="dict-v11-loading"><b>🔎 Đang tra ${escapeHTML(word)}${verbInfo ? ` (từ gốc của ${escapeHTML(requested)})` : ''}...</b><div class="dict-v11-skeleton"><span></span><span></span><span></span></div></div>`);
 
-    const dictUrl = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`;
     let data = null;
     try {
-        data = await dictV11FetchJSON(dictUrl, 5000, controller.signal);
+        data = await dictV11FetchJSON(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`, 5000, controller.signal);
     } catch (e) {
         if (!dictV11IsCurrent(requestId)) return;
         try {
@@ -3923,15 +3919,9 @@ window.lookupIrregularVerbDetail = async function(verb, targetId) {
     }
     target.innerHTML = '<span style="color:#007bff;">🔎 Đang tra...</span>';
     try {
-        const [dictResponse, transResponse] = await Promise.all([
-            fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(verb)}`).catch(() => null),
-            fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(verb)}&langpair=en|vi`).catch(() => null)
-        ]);
-        let vi = '';
-        if (transResponse?.ok) {
-            const t = await transResponse.json();
-            vi = t?.responseData?.translatedText || '';
-        }
+        const payload = await dictV34BackendLookup(verb, 'full', 5000);
+        const dictResponse = payload?.entries ? { ok: true, json: async () => payload.entries } : null;
+        const vi = payload?.translation || '';
         let html = `<b style="color:#2e7d32;">${escapeHTML(vi || 'Đang cập nhật nghĩa')}</b>`;
         if (dictResponse?.ok) {
             const data = await dictResponse.json();
