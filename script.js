@@ -900,86 +900,61 @@ function dictV34WordFromUrl(url) {
     } catch (e) {}
     return '';
 }
-async function dictV34BackendLookup(word, kind, timeoutMs, externalSignal) {
-    if (!DICT_V34_BACKEND) throw new Error('Chưa cấu hình Apps Script backend');
+function dictV34BackendLookup(word, kind, timeoutMs, externalSignal) {
+    if (!DICT_V34_BACKEND) return Promise.reject(new Error('Chưa cấu hình Apps Script backend'));
+    const timeout = timeoutMs || 7000;
+    const key = dictV11NormalizeWord(word);
+    if (!key) return Promise.reject(new Error('Từ rỗng'));
 
-    // V36.5: Apps Script ContentService không cấp CORS header cho GitHub Pages.
-    // Vì vậy không dùng fetch() trực tiếp ở đây. Dùng JSONP để trình duyệt
-    // có thể nhận dữ liệu cross-origin mà không bị lỗi CORS.
-    const timeout = Math.max(1500, Number(timeoutMs) || 5000);
-    const callbackName = '__dictV34Jsonp_' + Date.now() + '_' + Math.random().toString(36).slice(2);
-
-    return await new Promise((resolve, reject) => {
-        let settled = false;
-        let script = null;
+    return new Promise((resolve, reject) => {
+        let finished = false;
         let timer = null;
-        let removeExternal = null;
+        const callbackName = '__dictV34_cb_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+        const script = document.createElement('script');
 
         const cleanup = () => {
             if (timer) clearTimeout(timer);
-            timer = null;
-            if (removeExternal) {
-                try { removeExternal(); } catch (e) {}
-                removeExternal = null;
-            }
             try { delete window[callbackName]; } catch (e) { window[callbackName] = undefined; }
-            if (script && script.parentNode) script.parentNode.removeChild(script);
-            script = null;
+            if (script.parentNode) script.parentNode.removeChild(script);
+            if (externalSignal && onAbort) externalSignal.removeEventListener('abort', onAbort);
         };
-
-        const fail = (err) => {
-            if (settled) return;
-            settled = true;
+        const finish = (err, payload) => {
+            if (finished) return;
+            finished = true;
             cleanup();
-            reject(err instanceof Error ? err : new Error(String(err || 'Không lấy được dữ liệu từ điển')));
+            if (err) reject(err); else resolve(payload);
         };
+        const onAbort = () => finish(new DOMException('Aborted', 'AbortError'));
 
-        const succeed = (payload) => {
-            if (settled) return;
-            // Apps Script phiên bản cũ có thể trả về JSON của quiz thay vì dictionary.
-            // Không coi response đó là thành công, nếu không phía dưới sẽ biến nó thành
-            // 'Không tìm thấy từ' và che mất nguyên nhân thật.
-            const isDictionaryPayload = !!payload && (
-                Array.isArray(payload.entries) ||
-                Object.prototype.hasOwnProperty.call(payload, 'translation') ||
-                Object.prototype.hasOwnProperty.call(payload, 'ipa') ||
-                payload.word === dictV11NormalizeWord(word)
-            );
-            if (!isDictionaryPayload || payload.ok === false) {
-                fail(new Error(payload?.error || 'Apps Script chưa triển khai route dictionary mới'));
+        window[callbackName] = payload => {
+            if (!payload || typeof payload !== 'object') {
+                finish(new Error('Apps Script trả dữ liệu không hợp lệ'));
                 return;
             }
-            settled = true;
-            cleanup();
-            resolve(payload);
-        };
-
-        window[callbackName] = succeed;
-
-        if (externalSignal) {
-            const abortFromParent = () => fail(new Error('dictionary request aborted'));
-            if (externalSignal.aborted) {
-                abortFromParent();
+            if (payload.ok === false) {
+                finish(new Error(payload.error || 'Apps Script từ chối yêu cầu'));
                 return;
             }
-            externalSignal.addEventListener('abort', abortFromParent, { once: true });
-            removeExternal = () => externalSignal.removeEventListener('abort', abortFromParent);
-        }
+            finish(null, payload);
+        };
 
-        const u = new URL(DICT_V34_BACKEND, window.location.href);
-        u.searchParams.set('action', 'dictionary');
-        u.searchParams.set('word', dictV11NormalizeWord(word));
-        u.searchParams.set('kind', kind || 'full');
-        u.searchParams.set('callback', callbackName);
-        u.searchParams.set('_ts', String(Date.now()));
-
-        script = document.createElement('script');
         script.async = true;
-        script.src = u.toString();
-        script.onerror = () => fail(new Error('Không kết nối được máy chủ từ điển'));
+        script.src = (() => {
+            const u = new URL(DICT_V34_BACKEND);
+            u.searchParams.set('action', 'dictionary');
+            u.searchParams.set('word', key);
+            u.searchParams.set('kind', kind || 'full');
+            u.searchParams.set('callback', callbackName);
+            u.searchParams.set('_t', String(Date.now()));
+            return u.toString();
+        })();
+        script.onerror = () => finish(new Error('Không tải được Apps Script Dictionary'));
         document.head.appendChild(script);
-
-        timer = setTimeout(() => fail(new Error('Máy chủ từ điển phản hồi quá thời gian')), timeout);
+        timer = setTimeout(() => finish(new Error('Apps Script Dictionary timeout')), timeout);
+        if (externalSignal) {
+            if (externalSignal.aborted) onAbort();
+            else externalSignal.addEventListener('abort', onAbort, { once: true });
+        }
     });
 }
 async function dictV34SmartLookup(word, timeoutMs, externalSignal) {
