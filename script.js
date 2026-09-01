@@ -1,6 +1,7 @@
 
 
 const API_URL = "https://script.google.com/macros/s/AKfycbxByXvzJFoK6N0jToFqXj1pEMBnGkMyoa7J5r7vEScJTr-ZSOfSw8Wdv8pPg5EyBg/exec";
+
 // ============================================================
 // V32 — SINGLE DICTIONARY ENGINE + PROFESSIONAL DUAL-PRONUNCIATION UI
 // - Chỉ script.js sở hữu window.lookupWord
@@ -1560,6 +1561,23 @@ function dictResolveRegularVerbForm(value) {
 function dictResolveBaseForm(value) {
     const query = dictV11NormalizeWord(value);
     if (!query) return null;
+
+    // V36.7 FIX: bảo vệ các từ gốc kết thúc bằng -eed.
+    // Các từ như succeed/need/proceed/exceed đều là từ gốc;
+    // tuyệt đối không được cắt chữ cuối thành succee/procee/excee.
+    const protectedEedBases = new Set([
+        'succeed', 'need', 'proceed', 'exceed', 'feed', 'bleed', 'breed',
+        'speed', 'freed', 'heed', 'seed', 'weed'
+    ]);
+    if (protectedEedBases.has(query)) {
+        return {
+            base: query,
+            v1: query,
+            matched: query,
+            matchedType: 'V1',
+            resolverType: 'base'
+        };
+    }
 
     // V36.5: nếu chính từ đang tra là một V1/base form hợp lệ
     // thì không tự biến đổi nó thành một ứng viên khác.
@@ -4497,4 +4515,3 @@ window.DictionaryV36 = {
 
 // V36.5 - Base-form correction: succeeded -> succeed, not succeede.
 window.DICTIONARY_V36_5 = true;
-
