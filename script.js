@@ -1403,10 +1403,13 @@ function dictResolveRegularVerbForm(value) {
     };
 }
 
-// V36.9 FIX: bảo vệ các Base Form có chính tả đặc biệt.
+// V36.10 FIX: bảo vệ Base Form, kể cả khi người dùng tra trực tiếp từ gốc.
 // Ví dụ: succeeded/succeeds/succeeding -> succeed.
 // Không được suy luận kiểu cắt hậu tố làm thành "succee" hoặc "succeede".
-const DICT_V36_9_BASE_FORM_OVERRIDES = Object.freeze({
+const DICT_V36_10_BASE_FORM_OVERRIDES = Object.freeze({
+    // Bản thân từ gốc cũng phải được bảo vệ: succeed -> succeed.
+    // Tránh resolver regular suy luận sai thành succee.
+    succeed: 'succeed',
     succeeded: 'succeed',
     succeeds: 'succeed',
     succeeding: 'succeed'
@@ -1417,7 +1420,7 @@ function dictResolveBaseForm(value) {
     if (!query) return null;
 
     // Ưu tiên sửa chính xác các nhóm từ đã biết có nguy cơ suy luận sai.
-    const overrideBase = DICT_V36_9_BASE_FORM_OVERRIDES[query];
+    const overrideBase = DICT_V36_10_BASE_FORM_OVERRIDES[query];
     if (overrideBase) {
         return {
             base: overrideBase,
@@ -1425,7 +1428,7 @@ function dictResolveBaseForm(value) {
             matched: query,
             matchedType: 'dạng biến đổi',
             resolverType: 'protected-base',
-            ruleLabel: 'V36.9 base-form protection'
+            ruleLabel: 'V36.10 base-form protection'
         };
     }
 
