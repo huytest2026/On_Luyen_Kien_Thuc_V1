@@ -936,8 +936,17 @@ async function dictV34BackendLookup(word, kind, timeoutMs, externalSignal) {
 
         const succeed = (payload) => {
             if (settled) return;
-            if (!payload || payload.ok === false) {
-                fail(new Error(payload?.error || 'Không có dữ liệu từ điển'));
+            // Apps Script phiên bản cũ có thể trả về JSON của quiz thay vì dictionary.
+            // Không coi response đó là thành công, nếu không phía dưới sẽ biến nó thành
+            // 'Không tìm thấy từ' và che mất nguyên nhân thật.
+            const isDictionaryPayload = !!payload && (
+                Array.isArray(payload.entries) ||
+                Object.prototype.hasOwnProperty.call(payload, 'translation') ||
+                Object.prototype.hasOwnProperty.call(payload, 'ipa') ||
+                payload.word === dictV11NormalizeWord(word)
+            );
+            if (!isDictionaryPayload || payload.ok === false) {
+                fail(new Error(payload?.error || 'Apps Script chưa triển khai route dictionary mới'));
                 return;
             }
             settled = true;
