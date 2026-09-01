@@ -1495,13 +1495,20 @@ function dictResolveRegularVerbForm(value) {
         add(query.slice(0, -3) + 'y', '-ied → -y');
     }
 
+    // V36.6 FIX: các động từ kết thúc bằng -eed + ed.
+    // Ví dụ: succeed -> succeeded, need -> needed, proceed -> proceeded.
+    // Với nhóm này, bỏ đúng 2 ký tự -ed sẽ trả về từ gốc; không được cộng thêm e.
+    if (query.endsWith('eeded') && query.length > 5) {
+        add(query.slice(0, -2), '-eeded → -eed');
+    }
+
     // -ed: closed -> close; worked -> work; stopped -> stop
     if (query.endsWith('ed') && query.length > 4) {
         const stem = query.slice(0, -2);
         if (stem.endsWith('i') && stem.length > 2) add(stem.slice(0, -1) + 'y', '-ied → -y');
         if (dictLooksLikeDoubledFinalConsonant(stem)) add(stem.slice(0, -1), 'bỏ phụ âm kép + -ed');
 
-        // V36.5 FIX:
+        // V36.5/V36.6 FIX:
         // Nếu stem đã kết thúc bằng e thì KHÔNG được cộng thêm e.
         // Ví dụ: succeeded -> stem = succeed.
         // Sai trước đây: succeed + e = succeede.
