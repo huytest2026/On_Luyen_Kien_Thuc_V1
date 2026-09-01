@@ -902,31 +902,76 @@ function dictV34WordFromUrl(url) {
 }
 async function dictV34BackendLookup(word, kind, timeoutMs, externalSignal) {
     if (!DICT_V34_BACKEND) throw new Error('Chưa cấu hình Apps Script backend');
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs || 5000);
-    let removeExternal = null;
-    try {
-        if (externalSignal) {
-            const abortFromParent = () => controller.abort();
-            if (externalSignal.aborted) controller.abort();
-            else {
-                externalSignal.addEventListener('abort', abortFromParent, { once: true });
-                removeExternal = () => externalSignal.removeEventListener('abort', abortFromParent);
+
+    // V36.5: Apps Script ContentService không cấp CORS header cho GitHub Pages.
+    // Vì vậy không dùng fetch() trực tiếp ở đây. Dùng JSONP để trình duyệt
+    // có thể nhận dữ liệu cross-origin mà không bị lỗi CORS.
+    const timeout = Math.max(1500, Number(timeoutMs) || 5000);
+    const callbackName = '__dictV34Jsonp_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+
+    return await new Promise((resolve, reject) => {
+        let settled = false;
+        let script = null;
+        let timer = null;
+        let removeExternal = null;
+
+        const cleanup = () => {
+            if (timer) clearTimeout(timer);
+            timer = null;
+            if (removeExternal) {
+                try { removeExternal(); } catch (e) {}
+                removeExternal = null;
             }
+            try { delete window[callbackName]; } catch (e) { window[callbackName] = undefined; }
+            if (script && script.parentNode) script.parentNode.removeChild(script);
+            script = null;
+        };
+
+        const fail = (err) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            reject(err instanceof Error ? err : new Error(String(err || 'Không lấy được dữ liệu từ điển')));
+        };
+
+        const succeed = (payload) => {
+            if (settled) return;
+            if (!payload || payload.ok === false) {
+                fail(new Error(payload?.error || 'Không có dữ liệu từ điển'));
+                return;
+            }
+            settled = true;
+            cleanup();
+            resolve(payload);
+        };
+
+        window[callbackName] = succeed;
+
+        if (externalSignal) {
+            const abortFromParent = () => fail(new Error('dictionary request aborted'));
+            if (externalSignal.aborted) {
+                abortFromParent();
+                return;
+            }
+            externalSignal.addEventListener('abort', abortFromParent, { once: true });
+            removeExternal = () => externalSignal.removeEventListener('abort', abortFromParent);
         }
-        const u = new URL(DICT_V34_BACKEND);
+
+        const u = new URL(DICT_V34_BACKEND, window.location.href);
         u.searchParams.set('action', 'dictionary');
         u.searchParams.set('word', dictV11NormalizeWord(word));
         u.searchParams.set('kind', kind || 'full');
-        const res = await fetch(u.toString(), { signal: controller.signal, cache: 'no-store' });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const payload = await res.json();
-        if (!payload || payload.ok === false) throw new Error(payload?.error || 'Không có dữ liệu');
-        return payload;
-    } finally {
-        clearTimeout(timer);
-        if (removeExternal) removeExternal();
-    }
+        u.searchParams.set('callback', callbackName);
+        u.searchParams.set('_ts', String(Date.now()));
+
+        script = document.createElement('script');
+        script.async = true;
+        script.src = u.toString();
+        script.onerror = () => fail(new Error('Không kết nối được máy chủ từ điển'));
+        document.head.appendChild(script);
+
+        timer = setTimeout(() => fail(new Error('Máy chủ từ điển phản hồi quá thời gian')), timeout);
+    });
 }
 async function dictV34SmartLookup(word, timeoutMs, externalSignal) {
     const key = dictV11NormalizeWord(word);
