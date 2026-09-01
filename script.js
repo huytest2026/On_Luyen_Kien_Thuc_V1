@@ -1562,14 +1562,15 @@ function dictResolveBaseForm(value) {
     const query = dictV11NormalizeWord(value);
     if (!query) return null;
 
-    // V36.7 FIX: bảo vệ các từ gốc kết thúc bằng -eed.
-    // Các từ như succeed/need/proceed/exceed đều là từ gốc;
-    // tuyệt đối không được cắt chữ cuối thành succee/procee/excee.
+    // V36.8 FIX: bảo vệ trực tiếp nhóm từ kết thúc bằng -eed.
+    // Nếu chính từ đang tra có dạng ...eed thì KHÔNG được suy diễn bằng
+    // quy tắc bỏ -d/-ed. Ví dụ: succeed -> succee là SAI.
+    // succeed phải luôn được giữ là Base form: succeed.
     const protectedEedBases = new Set([
         'succeed', 'need', 'proceed', 'exceed', 'feed', 'bleed', 'breed',
         'speed', 'freed', 'heed', 'seed', 'weed'
     ]);
-    if (protectedEedBases.has(query)) {
+    if (protectedEedBases.has(query) || query.endsWith('eed')) {
         return {
             base: query,
             v1: query,
@@ -4507,7 +4508,7 @@ window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e
 
 // V36 diagnostic info
 window.DictionaryV36 = {
-    version: 'V36.1-FIX',
+    version: 'V36.8-FIX',
     sources: V36_DICT_SOURCES.map(item => ({ ...item })),
     lookupOrder: ['dictionary-50k', 'dictionary-200k/core']
 };
@@ -4515,3 +4516,5 @@ window.DictionaryV36 = {
 
 // V36.5 - Base-form correction: succeeded -> succeed, not succeede.
 window.DICTIONARY_V36_5 = true;
+window.DICTIONARY_V36_8 = true;
+window.DICTIONARY_V36_8_FIX = 'base-form-protection';
