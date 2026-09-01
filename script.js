@@ -1,4 +1,4 @@
-const API_URL = "https://script.google.com/macros/s/AKfycbyVe4lxouXJ6mUc2dMOBdCbMDFr_OFffFMfNE7hWeg7QkwM12BU37PZTiX7vqPWFret/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbxByXvzJFoK6N0jToFqXj1pEMBnGkMyoa7J5r7vEScJTr-ZSOfSw8Wdv8pPg5EyBg/exec";
 // ============================================================
 // V32 — SINGLE DICTIONARY ENGINE + PROFESSIONAL DUAL-PRONUNCIATION UI
 // - Chỉ script.js sở hữu window.lookupWord
