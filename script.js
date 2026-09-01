@@ -1,7 +1,6 @@
 
 
 const API_URL = "https://script.google.com/macros/s/AKfycbxByXvzJFoK6N0jToFqXj1pEMBnGkMyoa7J5r7vEScJTr-ZSOfSw8Wdv8pPg5EyBg/exec";
-
 // ============================================================
 // V32 — SINGLE DICTIONARY ENGINE + PROFESSIONAL DUAL-PRONUNCIATION UI
 // - Chỉ script.js sở hữu window.lookupWord
@@ -1502,10 +1501,14 @@ function dictResolveRegularVerbForm(value) {
         if (stem.endsWith('i') && stem.length > 2) add(stem.slice(0, -1) + 'y', '-ied → -y');
         if (dictLooksLikeDoubledFinalConsonant(stem)) add(stem.slice(0, -1), 'bỏ phụ âm kép + -ed');
 
-        // Các hậu tố thường giữ lại chữ e khi thêm -d: close -> closed, resolve -> resolved...
-        // Ưu tiên dạng +e để tránh closed -> clos. Sau đó vẫn giữ ứng viên bỏ -ed
-        // làm dự phòng cho worked -> work.
-        add(stem + 'e', '+e trước -d/-ed');
+        // V36.5 FIX:
+        // Nếu stem đã kết thúc bằng e thì KHÔNG được cộng thêm e.
+        // Ví dụ: succeeded -> stem = succeed.
+        // Sai trước đây: succeed + e = succeede.
+        // Đúng: succeeded -> succeed.
+        if (!stem.endsWith('e')) {
+            add(stem + 'e', '+e trước -d/-ed');
+        }
         add(stem, 'bỏ -ed');
     }
 
@@ -1548,7 +1551,39 @@ function dictResolveRegularVerbForm(value) {
 }
 
 function dictResolveBaseForm(value) {
-    return dictResolveIrregularVerbForm(value) || dictResolveRegularVerbForm(value);
+    const query = dictV11NormalizeWord(value);
+    if (!query) return null;
+
+    // V36.5: nếu chính từ đang tra là một V1/base form hợp lệ
+    // thì không tự biến đổi nó thành một ứng viên khác.
+    // Tránh các lỗi kiểu succeed -> succeede.
+    if (dictIsKnownBaseVerb(query)) {
+        return {
+            base: query,
+            v1: query,
+            matched: query,
+            matchedType: 'V1',
+            resolverType: 'base'
+        };
+    }
+
+    return dictResolveIrregularVerbForm(query) || dictResolveRegularVerbForm(query);
+}
+
+function dictIsKnownBaseVerb(word) {
+    const w = dictV11NormalizeWord(word);
+    if (!w) return false;
+
+    // Các V1 bất quy tắc đã có trong bảng ánh xạ.
+    try {
+        if (typeof IRREGULAR_VERBS_DATA !== 'undefined' && Array.isArray(IRREGULAR_VERBS_DATA)) {
+            if (IRREGULAR_VERBS_DATA.some(item => dictV11NormalizeWord(item.v1) === w)) return true;
+        }
+    } catch (e) {}
+
+    // Các động từ mà bộ dữ liệu offline/online đã nhận diện là chính từ đang tra.
+    // Chỉ dùng cho những từ không có dạng biến đổi đang được xử lý.
+    return false;
 }
 
 // V30: Thông tin từ gốc là lớp bắt buộc, được render trực tiếp bởi engine duy nhất.
@@ -1784,7 +1819,9 @@ window.lookupWord = async function(requestedWord = '') {
         return;
     }
 
-    // Giữ nguyên cơ chế nhận diện từ gốc: went/gone -> go, closed -> close...
+    // Nếu học sinh tra một dạng đã biến đổi, tự nhận diện từ gốc:
+    // went/gone -> go, closed -> close, studied -> study...
+    // nhưng vẫn giữ nguyên dạng học sinh vừa nhập ở ô tìm kiếm.
     const verbInfo = dictResolveBaseForm(requested);
     const word = verbInfo ? dictV11NormalizeWord(verbInfo.base || verbInfo.v1) : requested;
     const baseFormNotice = dictV31BuildBaseFormNotice(requested, verbInfo);
@@ -1795,76 +1832,16 @@ window.lookupWord = async function(requestedWord = '') {
     const requestId = ++AppState.dictionaryRequestId;
     const showResult = (html) => {
         dictV27ApplyBaseFormNotice(resultBox, baseFormNotice, html);
+        // V32: sau khi render, cập nhật riêng IPA/audio của từ đang tra và từ gốc.
         if (verbInfo) dictV31EnhanceBaseFormPronunciations(resultBox, requested, verbInfo, requestId);
     };
-
     if (AppState.dictionaryAbortController) {
         try { AppState.dictionaryAbortController.abort(); } catch(e) {}
     }
     const controller = new AbortController();
     AppState.dictionaryAbortController = controller;
 
-    // ============================================================
-    // V36.4 FIX — OFFLINE -> CACHE -> ONLINE FALLBACK
-    // - Không thay đổi các chức năng quiz, quyền, chấm điểm, nộp bài...
-    // - Offline có: hiển thị ngay + bổ sung online nếu cần.
-    // - Offline không có: vẫn phải thử cache, sau đó bắt buộc thử Online.
-    // - Cache cũ không có nghĩa Việt: vẫn gọi backend translation.
-    // ============================================================
-
-    const enrichFromOnline = async (targetWord, fallbackHtml = '') => {
-        if (!dictV11IsCurrent(requestId)) return false;
-        let data = null;
-        try {
-            data = await dictV11FetchJSON(
-                `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(targetWord)}`,
-                5000,
-                controller.signal
-            );
-        } catch (e) {}
-
-        if (!dictV11IsCurrent(requestId)) return false;
-
-        let vi = '';
-        try {
-            vi = await dictV36GetVietnameseMeaning(targetWord, controller);
-        } catch (e) {}
-
-        if (!dictV11IsCurrent(requestId)) return false;
-
-        const familyHtml = await renderWordFamily(targetWord).catch(() => '');
-        if (!dictV11IsCurrent(requestId)) return false;
-
-        // Có dữ liệu từ điển Online -> render đầy đủ.
-        if (Array.isArray(data) && data.length) {
-            const onlineHtml = buildDictionaryBaseHTML(data, targetWord);
-            const slot = resultBox.querySelector('#dict-offline-online-slot');
-            if (slot) {
-                slot.innerHTML = `<div class="dict-v11-meta" style="margin-bottom:8px;">🌐 Đã bổ sung dữ liệu online.</div>${onlineHtml}${vi ? `<div class="dict-v36-vi-meaning" style="padding:10px;background:#e8f5e9;border:1px solid #c8e6c9;border-radius:7px;margin-top:8px;"><b style="color:#2e7d32;">🇻🇳 Nghĩa tiếng Việt:</b> <span style="font-weight:700;color:#1b5e20;">${escapeHTML(vi)}</span></div>` : ''}${familyHtml}`;
-            } else {
-                showResult(`${onlineHtml}${vi ? `<div class="dict-v36-vi-meaning" style="padding:10px;background:#e8f5e9;border:1px solid #c8e6c9;border-radius:7px;margin-top:8px;"><b style="color:#2e7d32;">🇻🇳 Nghĩa tiếng Việt:</b> <span style="font-weight:700;color:#1b5e20;">${escapeHTML(vi)}</span></div>` : ''}${familyHtml}`);
-            }
-            if (baseFormNotice && !resultBox.querySelector('.dict-base-form-note')) {
-                resultBox.insertAdjacentHTML('afterbegin', baseFormNotice);
-            }
-            await dictV11Save(targetWord, dictV26GetResultHTMLForCache(resultBox));
-            return true;
-        }
-
-        // Dictionary API không có dữ liệu nhưng backend vẫn có thể trả nghĩa Việt.
-        if (vi) {
-            const slot = resultBox.querySelector('#dict-offline-online-slot');
-            const viHtml = `<div class="dict-v36-vi-meaning" style="padding:10px;background:#e8f5e9;border:1px solid #c8e6c9;border-radius:7px;margin-top:8px;"><b style="color:#2e7d32;">🇻🇳 Nghĩa tiếng Việt:</b> <span style="font-weight:700;color:#1b5e20;">${escapeHTML(vi)}</span></div>`;
-            if (slot) slot.innerHTML = viHtml + familyHtml;
-            else if (fallbackHtml) showResult(fallbackHtml + viHtml + familyHtml);
-            await dictV11Save(targetWord, dictV26GetResultHTMLForCache(resultBox));
-            return true;
-        }
-
-        return false;
-    };
-
-    // 1) OFFLINE: 50K + 200K/core (hàm cũ được giữ nguyên tên để tương thích).
+    // Offline-first: nếu tra went/gone thì kho và API đều được tra theo V1 = go.
     const offlineEntry = await getOffline50KEntry(word);
     if (offlineEntry) {
         showResult(buildOffline10KHTML(word, offlineEntry));
@@ -1873,67 +1850,103 @@ window.lookupWord = async function(requestedWord = '') {
         offlineMeta.innerHTML = `<span class="cache">⚡ Offline 200K · ${window.OFFLINE_DICTIONARY_50K_COUNT || 50000} từ</span>`;
         resultBox.prepend(offlineMeta);
 
-        // Có cache rich thì dùng ngay, nhưng KHÔNG return sớm:
-        // V36.4 vẫn kiểm tra nghĩa Việt và bổ sung Online.
         try {
             const cachedRich = await dictV11Get(word);
             if (!dictV11IsCurrent(requestId)) return;
-            if (cachedRich?.html) {
-                showResult(cachedRich.html);
+            const richHtml = cachedRich?.html || '';
+            const isRichCache = richHtml.includes('🌐 Đã bổ sung dữ liệu online.') ||
+                richHtml.includes('dict-family-slot') ||
+                richHtml.includes('dict-translation-slot');
+            if (cachedRich && cachedRich.fresh && isRichCache) {
+                showResult(richHtml);
                 const meta = document.createElement('div');
                 meta.className = 'dict-v11-meta';
                 meta.innerHTML = `<span class="cache">⚡ Offline 200K + Cache ${cachedRich.source === 'indexeddb' ? 'IndexedDB' : 'trình duyệt'}</span>`;
                 resultBox.prepend(meta);
+                // Cache cũ có thể chỉ lưu IPA/định nghĩa mà chưa có nghĩa Việt.
+                // Không bỏ qua bước dịch nữa.
+                if (!dictV36HasVietnameseMeaning(resultBox)) {
+                    dictV36EnsureVietnameseMeaning(word, requestId, controller, resultBox).catch(() => {});
+                }
             }
         } catch (e) {}
 
-        enrichFromOnline(word, resultBox.innerHTML).catch(() => {});
-        if (!dictV36HasVietnameseMeaning(resultBox)) {
-            dictV36EnsureVietnameseMeaning(word, requestId, controller, resultBox).catch(() => {});
-        }
+        enrichOfflineWordOnline(word, requestId, controller, resultBox, baseFormNotice).catch(() => {});
         return;
     }
 
-    // 2) CACHE: nếu đã tra trước đó thì hiển thị ngay, nhưng vẫn Online-refresh.
+    // Tầng 1: RAM cache.
     const memoryHtml = AppState.dictionaryCache.get(cleanKey(word));
     if (typeof memoryHtml === 'string' && memoryHtml) {
         showResult(memoryHtml);
         const meta = document.createElement('div');
         meta.className = 'dict-v11-meta';
-        meta.innerHTML = '<span class="cache">⚡ Hiển thị từ bộ nhớ đệm · đang kiểm tra Online...</span>';
+        meta.innerHTML = '<span class="cache">⚡ Hiển thị từ bộ nhớ đệm</span>';
         resultBox.prepend(meta);
-        enrichFromOnline(word, memoryHtml).catch(() => {});
-        if (!dictV36HasVietnameseMeaning(resultBox)) {
-            dictV36EnsureVietnameseMeaning(word, requestId, controller, resultBox).catch(() => {});
-        }
         return;
     }
 
-    showResult(`<div class="dict-v11-loading"><b>🔎 Đang tra ${escapeHTML(word)}${verbInfo ? ` (từ gốc của ${escapeHTML(requested)})` : ''}...</b><div class="dict-v11-skeleton"><span></span><span></span><span></span></div></div>`);
-
-    // 3) Persistent cache: chỉ dùng để hiển thị tức thì; KHÔNG được return nếu chưa có Online.
+    // Tầng 2: IndexedDB/localStorage.
+    showResult(`<div class="dict-v11-loading"><b>⚡ Đang kiểm tra bộ nhớ nhanh...</b><div class="dict-v11-skeleton"><span></span><span></span><span></span></div></div>`);
     const persistent = await dictV11Get(word);
     if (!dictV11IsCurrent(requestId)) return;
     if (persistent && persistent.html) {
         showResult(persistent.html);
         const meta = document.createElement('div');
         meta.className = 'dict-v11-meta';
-        meta.innerHTML = `<span class="cache">⚡ Cache ${persistent.source === 'indexeddb' ? 'IndexedDB' : 'trình duyệt'} · đang kiểm tra Online...</span>`;
+        meta.innerHTML = `<span class="cache">⚡ Cache ${persistent.source === 'indexeddb' ? 'IndexedDB' : 'trình duyệt'}</span>`;
         resultBox.prepend(meta);
-
-        const hasVi = dictV36HasVietnameseMeaning(resultBox);
-        enrichFromOnline(word, persistent.html).catch(() => {});
-        if (!hasVi) dictV36EnsureVietnameseMeaning(word, requestId, controller, resultBox).catch(() => {});
         return;
     }
 
-    // 4) KHÔNG có Offline + KHÔNG có Cache -> bắt buộc thử Online.
-    const onlineOK = await enrichFromOnline(word);
+    showResult(`<div class="dict-v11-loading"><b>🔎 Đang tra ${escapeHTML(word)}${verbInfo ? ` (từ gốc của ${escapeHTML(requested)})` : ''}...</b><div class="dict-v11-skeleton"><span></span><span></span><span></span></div></div>`);
+
+    let data = null;
+    try {
+        data = await dictV11FetchJSON(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`, 5000, controller.signal);
+    } catch (e) {
+        if (!dictV11IsCurrent(requestId)) return;
+        try {
+            const transUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(word)}&langpair=en|vi`;
+            const transData = await dictV11FetchJSON(transUrl, 3000, controller.signal);
+            const vietnameseMeaning = transData?.responseData?.translatedText || '';
+            const familyHtml = await renderWordFamily(word).catch(() => '');
+            if (!dictV11IsCurrent(requestId)) return;
+            showResult(`<div class="dict-word-head"><b style="font-size:1.35em;color:#540606;">${escapeHTML(word)}</b>${speechButtonHTML(word)}</div>
+                ${vietnameseMeaning ? `<div style="padding:12px;background:#e8f5e9;border-radius:7px;"><b>🇻🇳 Nghĩa tiếng Việt:</b> ${escapeHTML(vietnameseMeaning)}</div>` : '<div style="color:#b00020;">Không lấy được nghĩa tiếng Việt.</div>'}
+                ${familyHtml}
+                <div class="dict-v11-meta">⚠️ Dictionary API không phản hồi; đang dùng nguồn dự phòng.</div>`);
+            await dictV11Save(word, dictV26GetResultHTMLForCache(resultBox));
+            return;
+        } catch (fallbackError) {
+            if (!dictV11IsCurrent(requestId)) return;
+            showResult(`<span style="color:red;">Không tìm thấy từ <b>${escapeHTML(word)}</b>. Vui lòng thử lại sau!</span>`);
+            return;
+        }
+    }
+
+    if (!Array.isArray(data) || !data.length) {
+        showResult(`<span style="color:red;">Không tìm thấy từ <b>${escapeHTML(word)}</b>.</span>`);
+        return;
+    }
     if (!dictV11IsCurrent(requestId)) return;
 
-    if (!onlineOK) {
-        showResult(`<span style="color:red;">Không tìm thấy từ <b>${escapeHTML(word)}</b> trong Offline 200K và nguồn Online hiện không phản hồi. Vui lòng kiểm tra Internet rồi thử lại.</span>`);
-    }
+    const entries = data;
+    showResult(buildDictionaryBaseHTML(entries, word));
+
+    await dictV11Save(word, dictV26GetResultHTMLForCache(resultBox));
+
+    const transPromise = dictV36GetVietnameseMeaning(word, controller);
+
+    const familyPromise = renderWordFamily(word).catch(() => '');
+    const [vietnameseMeaning, familyHtml] = await Promise.all([transPromise, familyPromise]);
+    if (!dictV11IsCurrent(requestId)) return;
+
+    dictV11SetTranslation(vietnameseMeaning, word);
+    const familySlot = document.getElementById('dict-family-slot');
+    if (familySlot) familySlot.innerHTML = familyHtml || '<div style="color:#777;">🌿 Chưa tìm thấy họ từ mở rộng.</div>';
+
+    await dictV11Save(word, dictV26GetResultHTMLForCache(resultBox));
 };
 
 function speechButtonHTML(text) {
@@ -4469,8 +4482,12 @@ window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e
 
 // V36 diagnostic info
 window.DictionaryV36 = {
-    version: 'V36.4-FIX',
+    version: 'V36.1-FIX',
     sources: V36_DICT_SOURCES.map(item => ({ ...item })),
     lookupOrder: ['dictionary-50k', 'dictionary-200k/core']
 };
+
+
+// V36.5 - Base-form correction: succeeded -> succeed, not succeede.
+window.DICTIONARY_V36_5 = true;
 
