@@ -4526,6 +4526,107 @@ document.addEventListener('click', function(e) {
         return originalFetch.apply(this, args);
     };
 })();
+// V41.1 FIX: Frontend exam generator bridge + UI logic.
+(function(){
+  function bankForSubject(subject){
+    return cleanKey(subject) === cleanKey('Toán') ? (AppState.mathQuestionBank || []) : (AppState.englishQuestionBank || []);
+  }
+  function val(row, keys){
+    for (var i=0;i<keys.length;i++) if (row && row[keys[i]] != null && String(row[keys[i]]).trim() !== '') return String(row[keys[i]]).trim();
+    return '';
+  }
+  function uniq(arr){ var out=[]; (arr||[]).forEach(function(x){x=String(x||'').trim(); if(x && out.indexOf(x)<0) out.push(x);}); return out; }
+  function shuffle(arr){
+    var a=(arr||[]).slice();
+    for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1)),t=a[i];a[i]=a[j];a[j]=t;}
+    return a;
+  }
+  function setStatus(msg, ok){
+    var el=document.getElementById('v41-generator-status');
+    if(el){el.textContent=msg; el.style.background=ok===false?'#fdecec':'#f5f5f5'; el.style.color=ok===false?'#b00020':'';}
+  }
+  function fillSelect(id, values, first){
+    var s=document.getElementById(id); if(!s) return;
+    s.innerHTML='<option value="">'+first+'</option>' + uniq(values).map(function(v){return '<option value="'+escapeHTML(v)+'">'+escapeHTML(v)+'</option>';}).join('');
+  }
+  function refreshV41Filters(){
+    var subject=(document.getElementById('v41-subject')||{}).value || 'Tiếng Anh';
+    var bank=bankForSubject(subject);
+    fillSelect('v41-topic', bank.map(function(q){return val(q,['ChuDe','Chủ đề','chuDe']);}), '-- Tất cả --');
+    fillSelect('v41-level', bank.map(function(q){return val(q,['DoKho','Độ khó','doKho']);}), '-- Tất cả --');
+    fillSelect('v41-skill', bank.map(function(q){return val(q,['KyNang','Kỹ năng','kyNang']);}), '-- Tất cả --');
+    var wrap=document.getElementById('v41-skill-wrap'); if(wrap) wrap.style.display=cleanKey(subject)===cleanKey('Tiếng Anh')?'block':'none';
+    setStatus('Ngân hàng '+subject+': '+bank.length+' câu. Sẵn sàng tạo đề.');
+  }
+  window.openV41ExamGenerator=function(){
+    var modal=document.getElementById('v41-exam-modal');
+    if(!modal){ alert('Không tìm thấy cửa sổ tạo đề V41.'); return; }
+    modal.style.display='flex';
+    refreshV41Filters();
+  };
+  window.closeV41ExamGenerator=function(){
+    var modal=document.getElementById('v41-exam-modal'); if(modal) modal.style.display='none';
+  };
+  window.generateV41Exam=function(){
+    var subject=(document.getElementById('v41-subject')||{}).value || 'Tiếng Anh';
+    var topic=(document.getElementById('v41-topic')||{}).value || '';
+    var level=(document.getElementById('v41-level')||{}).value || '';
+    var skill=(document.getElementById('v41-skill')||{}).value || '';
+    var count=Math.max(1,Math.min(100,parseInt((document.getElementById('v41-count')||{}).value,10)||10));
+    var minutes=Math.max(1,Math.min(180,parseInt((document.getElementById('v41-minutes')||{}).value,10)||20));
+    var variants=Math.max(1,Math.min(20,parseInt((document.getElementById('v41-variants')||{}).value,10)||1));
+    var name=((document.getElementById('v41-name')||{}).value||'').trim();
+    var bank=bankForSubject(subject);
+    var filtered=bank.filter(function(q){
+      var qTopic=val(q,['ChuDe','Chủ đề','chuDe']);
+      var qLevel=val(q,['DoKho','Độ khó','doKho']);
+      var qSkill=val(q,['KyNang','Kỹ năng','kyNang']);
+      var status=val(q,['TrangThai','Trạng thái','trangThai']);
+      if(status && cleanKey(status)!==cleanKey('Hoạt động')) return false;
+      return (!topic || cleanKey(qTopic)===cleanKey(topic)) && (!level || cleanKey(qLevel)===cleanKey(level)) && (!skill || cleanKey(qSkill)===cleanKey(skill));
+    });
+    if(filtered.length<count){ setStatus('Không đủ câu phù hợp: cần '+count+', hiện có '+filtered.length+'.',false); return; }
+    var ids=filtered.map(function(q){return val(q,['MaCau','Mã câu','maCau','ID']);}).filter(Boolean);
+    if(ids.length<count){setStatus('Một số câu chưa có MaCau. Vui lòng bổ sung mã câu trong ngân hàng.',false);return;}
+    var result=document.getElementById('v41-result'); if(result) result.innerHTML='';
+    var btn=document.getElementById('v41-generate-btn'); if(btn) btn.disabled=true;
+    var created=[];
+    function callCreate(payload){
+      return new Promise(function(resolve,reject){
+        var cb='v41cb_'+Date.now()+'_'+Math.floor(Math.random()*100000);
+        var script=document.createElement('script');
+        var timer=setTimeout(function(){cleanup();reject(new Error('Hết thời gian kết nối Apps Script.'));},20000);
+        window[cb]=function(data){cleanup();resolve(data);};
+        function cleanup(){clearTimeout(timer);try{delete window[cb];}catch(e){window[cb]=undefined;}if(script.parentNode)script.parentNode.removeChild(script);}
+        script.onerror=function(){cleanup();reject(new Error('Không kết nối được Apps Script.'));};
+        var params='?action=createexam&subject='+encodeURIComponent(payload.subject)+'&topic='+encodeURIComponent(payload.topic)+'&skill='+encodeURIComponent(payload.skill)+'&level='+encodeURIComponent(payload.level)+'&questionIds='+encodeURIComponent(payload.questionIds.join(','))+'&minutes='+encodeURIComponent(payload.minutes)+'&name='+encodeURIComponent(payload.name)+'&callback='+cb;
+        script.src=API_URL+params; document.body.appendChild(script);
+      });
+    }
+    (async function(){
+      try{
+        for(var n=0;n<variants;n++){
+          var picked=shuffle(filtered).slice(0,count);
+          var p={subject:subject,topic:topic,skill:skill,level:level,questionIds:picked.map(function(q){return val(q,['MaCau','Mã câu','maCau','ID']);}),minutes:minutes,name:name?name+' - Mã '+(n+1):''};
+          setStatus('Đang tạo mã đề '+(n+1)+'/'+variants+'...');
+          var data=await callCreate(p);
+          if(!data || !data.ok) throw new Error((data&&data.message)||'Không tạo được đề.');
+          created.push(data);
+        }
+        setStatus('Đã tạo '+created.length+' mã đề thành công.');
+        if(result){
+          result.innerHTML='<div style="padding:10px;border:1px solid #198754;border-radius:8px;background:#f0fff5"><b>✅ Tạo đề thành công</b><br>'+created.map(function(x){return 'Mã đề: <b>'+escapeHTML(x.maDe)+'</b> — '+x.count+' câu — '+x.minutes+' phút';}).join('<br>')+'</div>';
+        }
+      }catch(e){ setStatus('Lỗi: '+e.message,false); }
+      finally{if(btn)btn.disabled=false;}
+    })();
+  };
+  document.addEventListener('DOMContentLoaded',function(){
+    var s=document.getElementById('v41-subject');
+    if(s) s.addEventListener('change',refreshV41Filters);
+  });
+})();
+
 window.printPDF = function() {
     // Tự động mở rộng phần xem lại chi tiết để khi in/lưu PDF nội dung hiển thị đầy đủ
     if (typeof window.viewReviewDetails === 'function') {
