@@ -1,14 +1,24 @@
 const API_URL = "https://script.google.com/macros/s/AKfycbxByXvzJFoK6N0jToFqXj1pEMBnGkMyoa7J5r7vEScJTr-ZSOfSw8Wdv8pPg5EyBg/exec";
-// ============================================================
-// V32 — SINGLE DICTIONARY ENGINE + PROFESSIONAL DUAL-PRONUNCIATION UI
-// - Chỉ script.js sở hữu window.lookupWord
-// - Không dùng V17/V18 wrapper, không dùng V28 patch
-// - Không dùng MutationObserver để chèn từ gốc
-// - Từ gốc được tính trước khi tra và được render trong cùng luồng
-// - V32: hiển thị tách rõ 2 thẻ: TỪ BẠN TRA và TỪ GỐC, mỗi thẻ có IPA + nút nghe riêng
-// ============================================================
 
+// Khóa lưu vị trí các chủ đề đã chọn
+const SAVED_TOPICS_KEY = 'QUIZ_SAVED_SELECTED_TOPICS';
+
+// ============================================================
+// TRẠNG THÁI ỨNG DỤNG (APP STATE HỢP NHẤT)
+// ============================================================
 let AppState = {
+    // Quản lý đề thi & Học sinh
+    studentId: '',
+    subject: 'Tiếng Anh',
+    level: 'Level 1',
+    isMade: false,
+    madeCode: '',
+    selectedTopics: [],
+    questions: [],
+    currentIndex: 0,
+    userAnswers: {},
+
+    // Dữ liệu hệ thống & Cache
     allQuizData: [],
     userPermissions: [],
     madePermissions: [],
@@ -16,6 +26,7 @@ let AppState = {
     currentQuizData: [],
     timerInterval: null,
     timerEndAt: 0,
+    timeRemaining: 0,
     correctCount: 0,
     wrongCount: 0,
     wrongQuestions: [],
@@ -33,6 +44,444 @@ let AppState = {
     dataLoadedAt: 0,
     submitInProgress: false
 };
+
+// ============================================================
+// KHỞI TẠO VÀ SỰ KIỆN GIAO DIỆN
+// ============================================================
+document.addEventListener('DOMContentLoaded', function() {
+    initEvents();
+    loadStudentDropdown(); // Tải danh sách học sinh từ UserPermissions
+});
+
+/**
+ * Khởi tạo các sự kiện giao diện
+ */
+function initEvents() {
+    // Chế độ sáng / tối
+    const themeBtn = document.getElementById('themeToggleBtn');
+    if (themeBtn) {
+        themeBtn.addEventListener('click', function() {
+            document.body.classList.toggle('dark-mode');
+            this.textContent = document.body.classList.contains('dark-mode') ? '☀️ Sáng' : '🌙 Tối';
+        });
+    }
+
+    // Nút xác nhận mã học sinh
+    const btnConfirm = document.getElementById('btnConfirmStudent');
+    if (btnConfirm) btnConfirm.addEventListener('click', onConfirmStudent);
+
+    // Bật/Tắt chế độ làm theo Mã đề riêng
+    const chkMade = document.getElementById('chkUseMade');
+    if (chkMade) {
+        chkMade.addEventListener('change', function() {
+            AppState.isMade = this.checked;
+            const madeContainer = document.getElementById('madeCodeContainer');
+            const topicSection = document.getElementById('topicSection');
+            if (madeContainer) madeContainer.classList.toggle('hidden', !this.checked);
+            if (topicSection) topicSection.classList.toggle('hidden', this.checked);
+        });
+    }
+
+    // Nút Chọn / Bỏ chọn tất cả chủ đề
+    const btnToggleAll = document.getElementById('toggleAllTopicsBtn');
+    if (btnToggleAll) btnToggleAll.addEventListener('click', toggleAllTopics);
+
+    // Bắt đầu làm bài
+    const btnStart = document.getElementById('btnStartExam');
+    if (btnStart) {
+        btnStart.addEventListener('click', function() {
+            startQuiz(false);
+        });
+    }
+
+    // Tạo đề tổng hợp
+    const btnQuick = document.getElementById('btnQuickExam');
+    if (btnQuick) {
+        btnQuick.addEventListener('click', function() {
+            startQuiz(true);
+        });
+    }
+
+    // Nộp bài
+    const btnSubmit = document.getElementById('btnSubmitQuiz');
+    if (btnSubmit) btnSubmit.addEventListener('click', onSubmitExam);
+
+    // Modal Máy tính
+    const btnCalc = document.getElementById('btnCalcModal');
+    if (btnCalc) btnCalc.addEventListener('click', () => toggleModal('calcModal', true));
+    const closeCalc = document.getElementById('closeCalcModal');
+    if (closeCalc) closeCalc.addEventListener('click', () => toggleModal('calcModal', false));
+
+    // Modal Tra từ
+    const btnDict = document.getElementById('btnDictModal');
+    if (btnDict) btnDict.addEventListener('click', () => toggleModal('dictModal', true));
+    const closeDict = document.getElementById('closeDictModal');
+    if (closeDict) closeDict.addEventListener('click', () => toggleModal('dictModal', false));
+    const btnLookup = document.getElementById('btnLookup');
+    if (btnLookup) btnLookup.addEventListener('click', handleDictLookup);
+}
+
+/**
+ * Gọi Google Apps Script lấy danh sách học sinh nạp vào Dropdown
+ */
+function loadStudentDropdown() {
+    if (typeof google === 'undefined' || !google.script || !google.script.run) return;
+    google.script.run
+        .withSuccessHandler(function(students) {
+            const selectElem = document.getElementById('studentIdSelect');
+            if (!selectElem) return;
+
+            selectElem.innerHTML = '<option value="">-- Chọn Mã học sinh --</option>';
+
+            if (students && students.length > 0) {
+                students.forEach(function(student) {
+                    const opt = document.createElement('option');
+                    opt.value = student;
+                    opt.textContent = student;
+                    selectElem.appendChild(opt);
+                });
+            } else {
+                selectElem.innerHTML = '<option value="">-- Không có dữ liệu học sinh --</option>';
+            }
+        })
+        .withFailureHandler(function(err) {
+            console.error("Lỗi nạp danh sách học sinh:", err);
+        })
+        .getStudentListFromPermissions();
+}
+
+/**
+ * Xác nhận học sinh & Tải cấu hình
+ */
+function onConfirmStudent() {
+    const studentSelect = document.getElementById('studentIdSelect');
+    const selectedId = studentSelect ? studentSelect.value.trim() : '';
+
+    if (!selectedId) {
+        alert("Vui lòng chọn Mã học sinh từ danh sách!");
+        return;
+    }
+
+    AppState.studentId = selectedId;
+
+    if (typeof google === 'undefined' || !google.script || !google.script.run) return;
+    google.script.run
+        .withSuccessHandler(function(res) {
+            if (res.success) {
+                renderTopics(res.topics || []);
+                updateMadeOptions(res.permissions || []);
+                alert("Tải thông tin phân quyền thành công!");
+            } else {
+                alert("Không tải được dữ liệu: " + res.message);
+            }
+        })
+        .getInitialData(selectedId);
+}
+
+/**
+ * Render danh sách chủ đề & Khôi phục chủ đề đã ghi nhớ
+ */
+function renderTopics(topicList) {
+    const container = document.getElementById('topicListContainer');
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (!topicList || topicList.length === 0) {
+        container.innerHTML = '<p class="text-muted">Không có chủ đề phù hợp.</p>';
+        return;
+    }
+
+    topicList.forEach((topic) => {
+        const label = document.createElement('label');
+        label.className = 'topic-item';
+        label.innerHTML = `
+            <input type="checkbox" class="topic-checkbox" value="${escapeHTML(topic)}" checked>
+            ${escapeHTML(topic)}
+        `;
+        container.appendChild(label);
+    });
+
+    restoreSelectedTopics();
+}
+
+/**
+ * Lưu danh sách chủ đề được chọn vào localStorage
+ */
+function saveSelectedTopics() {
+    const checkedBoxes = document.querySelectorAll('.topic-checkbox:checked');
+    const selectedTopics = Array.from(checkedBoxes).map(cb => cb.value);
+    localStorage.setItem(SAVED_TOPICS_KEY, JSON.stringify(selectedTopics));
+}
+
+/**
+ * Khôi phục chủ đề đã lưu từ localStorage
+ */
+function restoreSelectedTopics() {
+    const savedData = localStorage.getItem(SAVED_TOPICS_KEY);
+    if (!savedData) return;
+
+    try {
+        const savedTopics = JSON.parse(savedData);
+        const allBoxes = document.querySelectorAll('.topic-checkbox');
+
+        if (allBoxes.length === 0) return;
+
+        allBoxes.forEach(cb => {
+            cb.checked = savedTopics.includes(cb.value);
+        });
+    } catch (e) {
+        console.error("Lỗi đọc ghi nhớ chủ đề:", e);
+    }
+}
+
+/**
+ * Chọn / Bỏ chọn tất cả chủ đề
+ */
+function toggleAllTopics() {
+    const checkboxes = document.querySelectorAll('.topic-checkbox');
+    if (checkboxes.length === 0) return;
+
+    const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+    checkboxes.forEach(cb => cb.checked = !allChecked);
+}
+
+/**
+ * Cập nhật danh sách Mã đề riêng
+ */
+function updateMadeOptions(permissions) {
+    const select = document.getElementById('madeCodeSelect');
+    if (!select) return;
+    select.innerHTML = '<option value="">-- Chọn Mã đề --</option>';
+
+    let mades = [];
+    permissions.forEach(p => {
+        if (p.allowedMade) mades = mades.concat(p.allowedMade);
+    });
+
+    Array.from(new Set(mades)).forEach(m => {
+        if (m) {
+            const opt = document.createElement('option');
+            opt.value = m;
+            opt.textContent = m;
+            select.appendChild(opt);
+        }
+    });
+}
+
+/**
+ * Tải câu hỏi và bắt đầu bài kiểm tra
+ */
+function startQuiz(isQuickExam) {
+    if (!AppState.studentId) {
+        alert("Vui lòng chọn và Xác nhận Mã học sinh trước!");
+        return;
+    }
+
+    const subjectSel = document.getElementById('subjectSelect');
+    const levelSel = document.getElementById('levelSelect');
+    if (subjectSel) AppState.subject = subjectSel.value;
+    if (levelSel) AppState.level = levelSel.value;
+    
+    // Lấy các chủ đề được chọn
+    const checkedBoxes = document.querySelectorAll('.topic-checkbox:checked');
+    AppState.selectedTopics = Array.from(checkedBoxes).map(cb => cb.value);
+
+    if (!AppState.isMade && AppState.selectedTopics.length === 0) {
+        alert("Vui lòng chọn ít nhất 1 chủ đề!");
+        return;
+    }
+
+    const madeCodeSel = document.getElementById('madeCodeSelect');
+    const filter = {
+        subject: AppState.subject,
+        level: AppState.level,
+        isMade: AppState.isMade,
+        madeCode: madeCodeSel ? madeCodeSel.value : '',
+        topics: AppState.selectedTopics
+    };
+
+    if (typeof google === 'undefined' || !google.script || !google.script.run) return;
+    google.script.run
+        .withSuccessHandler(function(res) {
+            if (res.success && res.questions.length > 0) {
+                AppState.questions = res.questions;
+                if (isQuickExam && AppState.questions.length > 21) {
+                    AppState.questions = AppState.questions.slice(0, 21);
+                }
+                launchQuizUI(isQuickExam ? 30 * 60 : 45 * 60);
+            } else {
+                alert("Không tìm thấy câu hỏi phù hợp với lựa chọn!");
+            }
+        })
+        .getQuizQuestions(filter);
+}
+
+/**
+ * Hiển thị giao diện làm bài thi
+ */
+function launchQuizUI(durationSeconds) {
+    const setupScreen = document.getElementById('setupScreen');
+    const quizContainer = document.getElementById('quizContainer');
+    if (setupScreen) setupScreen.classList.add('hidden');
+    if (quizContainer) quizContainer.classList.remove('hidden');
+
+    AppState.currentIndex = 0;
+    AppState.userAnswers = {};
+    AppState.timeRemaining = durationSeconds;
+
+    startTimer();
+    renderCurrentQuestion();
+}
+
+function startTimer() {
+    clearInterval(AppState.timerInterval);
+    AppState.timerInterval = setInterval(() => {
+        AppState.timeRemaining--;
+        const mins = Math.floor(AppState.timeRemaining / 60);
+        const secs = AppState.timeRemaining % 60;
+        const timerDisplay = document.getElementById('timerDisplay');
+        if (timerDisplay) {
+            timerDisplay.textContent = 
+                `⏱️ ${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        if (AppState.timeRemaining <= 0) {
+            clearInterval(AppState.timerInterval);
+            alert("Đã hết thời gian làm bài!");
+            onSubmitExam();
+        }
+    }, 1000);
+}
+
+function renderCurrentQuestion() {
+    const q = AppState.questions[AppState.currentIndex];
+    const area = document.getElementById('questionArea');
+    if (!q || !area) return;
+
+    const progressDisplay = document.getElementById('progressDisplay');
+    if (progressDisplay) {
+        progressDisplay.textContent = `Câu ${AppState.currentIndex + 1}/${AppState.questions.length}`;
+    }
+
+    let html = `<h3>Câu ${AppState.currentIndex + 1}: ${q.question}</h3><div class="options-list">`;
+    const labels = ['A', 'B', 'C', 'D'];
+
+    if (Array.isArray(q.options)) {
+        q.options.forEach((opt, idx) => {
+            if (opt) {
+                const isChecked = AppState.userAnswers[q.id] === labels[idx] ? 'checked' : '';
+                html += `
+                    <label class="option-item" style="display:block; margin: 8px 0;">
+                        <input type="radio" name="opt_${q.id}" value="${labels[idx]}" ${isChecked} onchange="selectAnswer('${q.id}', '${labels[idx]}')">
+                        <strong>${labels[idx]}.</strong> ${opt}
+                    </label>`;
+            }
+        });
+    }
+
+    html += `</div>`;
+    area.innerHTML = html;
+}
+
+function selectAnswer(qId, val) {
+    AppState.userAnswers[qId] = val;
+}
+
+/**
+ * Nộp bài & Lưu chủ đề đã chọn
+ */
+function onSubmitExam() {
+    saveSelectedTopics();
+    clearInterval(AppState.timerInterval);
+
+    let correct = 0;
+    if (Array.isArray(AppState.questions)) {
+        AppState.questions.forEach(q => {
+            if (AppState.userAnswers[q.id] === q.answer) {
+                correct++;
+            }
+        });
+    }
+
+    const total = AppState.questions ? AppState.questions.length : 0;
+    const score = total > 0 ? ((correct / total) * 10).toFixed(1) : 0;
+
+    const resultData = {
+        studentId: AppState.studentId,
+        subject: AppState.subject,
+        level: AppState.level,
+        score: score,
+        correctCount: correct,
+        totalQuestions: total,
+        details: AppState.userAnswers
+    };
+
+    if (typeof google === 'undefined' || !google.script || !google.script.run) return;
+    google.script.run
+        .withSuccessHandler(function() {
+            const quizContainer = document.getElementById('quizContainer');
+            const resultScreen = document.getElementById('resultScreen');
+            const scoreSummary = document.getElementById('scoreSummary');
+
+            if (quizContainer) quizContainer.classList.add('hidden');
+            if (resultScreen) resultScreen.classList.remove('hidden');
+            if (scoreSummary) {
+                scoreSummary.innerHTML = `
+                    <h3>Mã học sinh: ${AppState.studentId}</h3>
+                    <p>Số câu đúng: <strong>${correct}/${total}</strong></p>
+                    <p>Điểm số: <strong style="font-size: 1.5rem; color: #00c853;">${score}</strong></p>
+                `;
+            }
+        })
+        .submitQuizResults(resultData);
+}
+
+// Helpers Modal, Máy tính & Tra từ
+function toggleModal(id, show) {
+    const modal = document.getElementById(id);
+    if (modal) modal.classList.toggle('hidden', !show);
+}
+
+function calcInput(val) {
+    const display = document.getElementById('calcDisplay');
+    if (display) display.value += val;
+}
+
+function calcClear() {
+    const display = document.getElementById('calcDisplay');
+    if (display) display.value = '';
+}
+
+function calcEqual() {
+    const display = document.getElementById('calcDisplay');
+    if (!display) return;
+    try {
+        display.value = eval(display.value);
+    } catch(e) {
+        display.value = 'Lỗi';
+    }
+}
+
+function handleDictLookup() {
+    const input = document.getElementById('dictInput');
+    const word = input ? input.value : '';
+    if (!word) return;
+    
+    const resultElem = document.getElementById('dictResult');
+    if (resultElem) resultElem.innerHTML = "Đang tra...";
+
+    if (typeof google === 'undefined' || !google.script || !google.script.run) return;
+    google.script.run
+        .withSuccessHandler(function(res) {
+            if (!resultElem) return;
+            if (res.success) {
+                resultElem.innerHTML = `<pre>${JSON.stringify(res.data, null, 2)}</pre>`;
+            } else {
+                resultElem.innerHTML = res.message;
+            }
+        })
+        .dictionaryV34Lookup(word);
+}
 
 // ============================================================
 // V20 SPEED LAYER - LOAD ONCE / REUSE MANY TIMES
@@ -90,7 +539,7 @@ function clearLegacyPermissionCaches() {
 
 function formatLocalDateTime(date = new Date()) {
     const pad = n => String(n).padStart(2, '0');
-    return pad(date.getDate()) + '/' + pad(date.getMonth() + 1) + '/' + date.getFullYear() +
+    return pad(date.getDate()) + '/' + pad(date.getMonth() + 1) + '/' + pad(date.getFullYear()) +
         ' ' + pad(date.getHours()) + ':' + pad(date.getMinutes()) + ':' + pad(date.getSeconds());
 }
 
@@ -332,6 +781,10 @@ function speakWord(text) {
     } else {
         alert("Trình duyệt của bạn không hỗ trợ tính năng phát âm.");
     }
+}
+
+function speechButtonHTML(word) {
+    return `<button class="tool-small-btn" onclick="speakWord('${escapeHTML(word)}')">🔊 Đọc</button>`;
 }
 
 // ==========================================
@@ -1547,263 +2000,5 @@ function dictV31ExtractPronunciation(entries, fallbackWord) {
         || phonetics.map(p => p?.text).find(Boolean)
         || '';
     const audio = phonetics.map(p => p?.audio).find(Boolean) || '';
-    return { word: fallbackWord, ipa: String(ipa || '').trim(), audio: String(audio || '').trim() };
+    return { word: fallbackWord, ipa, audio };
 }
-
-async function dictV31GetPronunciationMeta(word) {
-    const key = dictV11NormalizeWord(word);
-    if (!key) return { word:'', ipa:'', audio:'' };
-    if (DICT_V31_PRON_CACHE.has(key)) return DICT_V31_PRON_CACHE.get(key);
-
-    const promise = (async () => {
-        try {
-            const offline = await getOffline50KEntry(key);
-            if (offline?.ipa) {
-                return { word:key, ipa:String(offline.ipa).trim(), audio:String(offline.audio || '').trim() };
-            }
-        } catch (e) {}
-
-        try {
-            const data = await dictV11FetchJSON(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(key)}`, 3500);
-            const meta = dictV31ExtractPronunciationMeta(data, key);
-            return meta;
-        } catch (e) {
-            return { word:key, ipa:'', audio:'' };
-        }
-    })();
-
-    DICT_V31_PRON_CACHE.set(key, promise);
-    return promise;
-}
-
-function dictV31ExtractPronunciationMeta(entries, fallbackWord) {
-    return dictV31ExtractPronunciation(entries, fallbackWord);
-}
-
-function dictV32EnsureStyles() {
-    if (document.getElementById('dict-v32-styles')) return;
-    const style = document.createElement('style');
-    style.id = 'dict-v32-styles';
-    style.textContent = `
-      .dict-v32-base-note{margin:0 0 12px;padding:0;background:linear-gradient(180deg,#fffdfa,#fff8e8);border:1px solid #e8c46f;border-radius:16px;overflow:hidden;box-shadow:0 8px 24px rgba(114,75,20,.10)}
-      .dict-v32-note-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;background:rgba(255,255,255,.65);border-bottom:1px solid rgba(232,196,111,.55)}
-      .dict-v32-note-title{font-weight:800;color:#6b3b00;font-size:1rem}.dict-v32-note-sub{color:#777;font-size:.9rem;text-align:right}
-      .dict-v32-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:14px}
-      .dict-v32-form-card{position:relative;border:1px solid #e5d8bd;border-radius:13px;padding:14px;background:#fff;min-width:0}
-      .dict-v32-form-card.requested{border-color:#e9b957;background:linear-gradient(180deg,#fffdf7,#fff7e4)}
-      .dict-v32-form-card.base{border-color:#9dc7a6;background:linear-gradient(180deg,#fbfffb,#eef8ef)}
-      .dict-v32-card-kicker{display:flex;align-items:center;gap:8px;font-size:.82rem;font-weight:800;letter-spacing:.02em;text-transform:uppercase;margin-bottom:8px}
-      .dict-v32-form-card.requested .dict-v32-card-kicker{color:#9a5a00}.dict-v32-form-card.base .dict-v32-card-kicker{color:#2f6b3b}
-      .dict-v32-word-row{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.dict-v32-word{font-size:1.55rem;font-weight:900;line-height:1.15;color:#3f1c1c;word-break:break-word}
-      .dict-v32-tag{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;background:rgba(122,75,0,.10);color:#7a4b00;font-size:.78rem;font-weight:800}
-      .dict-v32-ipa-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px dashed rgba(0,0,0,.12)}
-      .dict-v32-ipa-label{font-size:.82rem;font-weight:800;color:#6b6b6b}.dict-v32-ipa{font-size:1.08rem;color:#164d73;font-weight:700}
-      .dict-v32-listen{border:0;border-radius:9px;padding:7px 10px;cursor:pointer;background:#f3efe5;color:#4b3b20;font-weight:800;font-size:.86rem}
-      .dict-v32-listen:hover{filter:brightness(.98);transform:translateY(-1px)}
-      .dict-v32-relation{margin:0 14px 12px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.7);color:#5b5b5b;font-size:.93rem}
-      .dict-v32-paradigm{margin:0 14px 14px;padding:11px 12px;border-radius:10px;background:#fff;border:1px solid #eadfc9;color:#5b5b5b;font-size:.92rem}
-      .dict-v32-paradigm b{color:#343434}
-      @media(max-width:620px){.dict-v32-form-grid{grid-template-columns:1fr}.dict-v32-note-head{align-items:flex-start;flex-direction:column}.dict-v32-note-sub{text-align:left}.dict-v32-word{font-size:1.35rem}}
-    `;
-    document.head.appendChild(style);
-}
-
-function dictV32AudioButton(word, audio) {
-    const safeWord = escapeHTML(word);
-    return audio
-        ? `<button type="button" class="dict-v32-listen" onclick="window.playDictionaryAudio('${escapeHTML(audio)}')">🔊 Nghe</button>`
-        : `<button type="button" class="dict-v32-listen" onclick="speakWord('${safeWord}')">🔊 Nghe</button>`;
-}
-
-function dictV32PronunciationCard(id, variant, kicker, word, typeLabel, ipa, audio) {
-    const safeId = escapeHTML(id);
-    const safeWord = escapeHTML(word);
-    const safeIpa = escapeHTML(ipa || 'Đang lấy phiên âm…');
-    return `<section class="dict-v32-form-card ${variant}" id="${safeId}">
-        <div class="dict-v32-card-kicker">${kicker}</div>
-        <div class="dict-v32-word-row"><span class="dict-v32-word">${safeWord}</span>${typeLabel ? `<span class="dict-v32-tag">${escapeHTML(typeLabel)}</span>` : ''}</div>
-        <div class="dict-v32-ipa-row">
-            <span class="dict-v32-ipa-label">🔤 IPA</span>
-            <code class="dict-v32-ipa">${safeIpa}</code>
-            ${dictV32AudioButton(word, audio)}
-        </div>
-    </section>`;
-}
-
-function dictV31BuildBaseFormNotice(requestedWord, verbInfo) {
-    if (!verbInfo) return '';
-    dictV32EnsureStyles();
-
-    const requested = dictV11NormalizeWord(requestedWord);
-    const base = dictV11NormalizeWord(verbInfo.base || verbInfo.v1 || '');
-    const type = verbInfo.matchedType || 'dạng biến đổi';
-    const relation = verbInfo.resolverType === 'irregular'
-        ? `${escapeHTML(requested)} là dạng ${escapeHTML(type)} của động từ ${escapeHTML(base)}.`
-        : `${escapeHTML(requested)} là một dạng biến đổi của ${escapeHTML(base)}.`;
-    const paradigm = verbInfo.resolverType === 'irregular'
-        ? dictV31GetIrregularParadigm(verbInfo)
-        : null;
-    const paradigmHtml = paradigm
-        ? `<div class="dict-v32-paradigm">🔗 <b>Dạng động từ:</b> V1: <b>${escapeHTML(paradigm.v1 || base)}</b> &nbsp;•&nbsp; V2: <b>${escapeHTML(paradigm.v2 || '')}</b> &nbsp;•&nbsp; V3: <b>${escapeHTML(paradigm.v3 || '')}</b></div>`
-        : `<div class="dict-v32-paradigm">🔗 ${escapeHTML(verbInfo.ruleLabel || 'Đã nhận diện dạng biến đổi')}</div>`;
-
-    const requestedId = `dict-v32-requested-pron-${requested}`;
-    const baseId = `dict-v32-base-pron-${base}`;
-
-    return `<div class="dict-base-form-note dict-v32-base-note" data-requested-word="${escapeHTML(requested)}" data-base-word="${escapeHTML(base)}">
-        <div class="dict-v32-note-head">
-            <div class="dict-v32-note-title">🧭 Nhận diện dạng từ</div>
-            <div class="dict-v32-note-sub">Hiển thị riêng từ bạn tra và từ gốc để dễ học</div>
-        </div>
-        <div class="dict-v32-form-grid">
-            ${dictV32PronunciationCard(requestedId, 'requested', '🔎 Từ bạn đang tra', requested, type, 'Đang lấy phiên âm…', '')}
-            ${dictV32PronunciationCard(baseId, 'base', '📌 Từ gốc (V1)', base, 'Base form', 'Đang lấy phiên âm…', '')}
-        </div>
-        <div class="dict-v32-relation">${relation}</div>
-        ${paradigmHtml}
-    </div>`;
-}
-
-function dictV31UpdatePronunciationRow(row, meta, word) {
-    if (!row) return;
-    const ipaEl = row.querySelector('.dict-v32-ipa');
-    if (ipaEl) ipaEl.textContent = meta?.ipa || 'Chưa có dữ liệu IPA';
-
-    const button = row.querySelector('.dict-v32-listen');
-    if (button) {
-        if (meta?.audio) {
-            button.setAttribute('onclick', `window.playDictionaryAudio('${escapeHTML(meta.audio)}')`);
-        } else {
-            button.setAttribute('onclick', `speakWord('${escapeHTML(word)}')`);
-        }
-    }
-}
-
-function dictV31EnhanceBaseFormPronunciations(resultBox, requestedWord, verbInfo, requestId = AppState.dictionaryRequestId) {
-    if (!resultBox || !verbInfo) return;
-    const requested = dictV11NormalizeWord(requestedWord);
-    const base = dictV11NormalizeWord(verbInfo.base || verbInfo.v1 || '');
-    if (!requested || !base) return;
-
-    const requestedSelector = `#dict-v32-requested-pron-${requested}`;
-    const baseSelector = `#dict-v32-base-pron-${base}`;
-
-    dictV31GetPronunciationMeta(requested).then(meta => {
-        if (!dictV11IsCurrent(requestId)) return;
-        const row = resultBox.querySelector(requestedSelector);
-        dictV31UpdatePronunciationRow(row, meta, requested);
-    }).catch(() => {});
-
-    dictV31GetPronunciationMeta(base).then(meta => {
-        if (!dictV11IsCurrent(requestId)) return;
-        const row = resultBox.querySelector(baseSelector);
-        dictV31UpdatePronunciationRow(row, meta, base);
-    }).catch(() => {});
-}
-
-function dictBuildBaseFormNotice(requestedWord, verbInfo) {
-    return dictV31BuildBaseFormNotice(requestedWord, verbInfo);
-}
-
-function dictV27ApplyBaseFormNotice(resultBox, baseFormNotice, html) {
-    if (!resultBox) return;
-    const body = String(html || '').replace(/<div class="dict-base-form-note"[\s\S]*?<\/div>\s*(?=<div|$)/g, '');
-    resultBox.innerHTML = (baseFormNotice || '') + body;
-}
-
-function dictV30ApplyBaseFormNoticeNow(resultBox, requestedWord) {
-    if (!resultBox) return;
-    const requested = dictV11NormalizeWord(requestedWord || '');
-    if (!requested) return;
-    const info = dictResolveBaseForm(requested);
-    const notice = dictBuildBaseFormNotice(requested, info);
-    resultBox.querySelectorAll('.dict-base-form-note').forEach(el => el.remove());
-    if (notice) resultBox.insertAdjacentHTML('afterbegin', notice);
-}
-
-function dictV26GetResultHTMLForCache(resultBox) {
-    if (!resultBox) return '';
-    const clone = resultBox.cloneNode(true);
-    clone.querySelectorAll('.dict-base-form-note').forEach(el => el.remove());
-    return clone.innerHTML;
-}
-
-window.lookupWord = async function(requestedWord = '') {
-    const input = document.getElementById('dict-input');
-    const resultBox = document.getElementById('dict-result');
-    if (!input || !resultBox) return;
-
-    const typed = String(requestedWord || input.value || '').trim();
-    const requested = dictV11NormalizeWord(typed);
-    if (!requested) {
-        resultBox.innerHTML = '<span style="color:red;">Vui lòng nhập từ cần tra!</span>';
-        return;
-    }
-
-    const verbInfo = dictResolveBaseForm(requested);
-    const word = verbInfo ? dictV11NormalizeWord(verbInfo.base || verbInfo.v1) : requested;
-    const baseFormNotice = dictV31BuildBaseFormNotice(requested, verbInfo);
-
-    input.value = requested;
-    dictV11RememberRecent(requested);
-
-    const requestId = ++AppState.dictionaryRequestId;
-    const showResult = (html) => {
-        dictV27ApplyBaseFormNotice(resultBox, baseFormNotice, html);
-        if (verbInfo) dictV31EnhanceBaseFormPronunciations(resultBox, requested, verbInfo, requestId);
-    };
-    if (AppState.dictionaryAbortController) {
-        try { AppState.dictionaryAbortController.abort(); } catch(e) {}
-    }
-    const controller = new AbortController();
-    AppState.dictionaryAbortController = controller;
-
-    // Offline-first: nếu tra went/gone thì kho và API đều được tra theo V1 = go.
-    const offlineEntry = await getOffline50KEntry(word);
-    if (offlineEntry) {
-        showResult(buildOffline10KHTML(word, offlineEntry));
-        const offlineMeta = document.getElementById('dict-offline-online-slot');
-        enrichOfflineWordOnline(word, requestId, controller, resultBox, baseFormNotice);
-        dictV36EnsureVietnameseMeaning(word, requestId, controller, resultBox);
-        return;
-    }
-
-    // Cache local check
-    const cached = await dictV11Get(word);
-    if (cached && cached.html) {
-        showResult(cached.html);
-        dictV36EnsureVietnameseMeaning(word, requestId, controller, resultBox);
-        return;
-    }
-
-    // Direct online API fetch fallback
-    try {
-        const data = await dictV11FetchJSON(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`, 4500, controller.signal);
-        if (!dictV11IsCurrent(requestId)) return;
-
-        let vi = '';
-        try { vi = await dictV36GetVietnameseMeaning(word, controller); } catch (e) {}
-        if (!dictV11IsCurrent(requestId)) return;
-
-        const familyHtml = await renderWordFamily(word).catch(() => '');
-        if (!dictV11IsCurrent(requestId)) return;
-
-        if (Array.isArray(data) && data.length) {
-            const onlineHtml = buildDictionaryBaseHTML(data, word);
-            const fullHtml = `<div class="dict-offline-card" style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:14px;margin-bottom:10px;">
-                ${onlineHtml}
-                ${vi ? `<div class="dict-v36-vi-meaning" style="padding:10px;background:#e8f5e9;border:1px solid #c8e6c9;border-radius:7px;margin-top:8px;"><b style="color:#2e7d32;">🇻🇳 Nghĩa tiếng Việt:</b> <span style="font-weight:700;color:#1b5e20;">${escapeHTML(vi)}</span></div>` : ''}
-                ${familyHtml}
-            </div>`;
-            showResult(fullHtml);
-            await dictV11Save(word, dictV26GetResultHTMLForCache(resultBox));
-            return;
-        }
-    } catch (e) {}
-
-    // Fallback if no entry found anywhere
-    if (!dictV11IsCurrent(requestId)) return;
-    showResult(`<div style="padding:15px;color:#d9534f;background:#fdf7f7;border:1px solid #d9534f;border-radius:8px;">
-        ⚠️ Không tìm thấy từ "<b>${escapeHTML(word)}</b>" trong từ điển.
-    </div>`);
-};
