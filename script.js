@@ -2002,3 +2002,17 @@ function dictV31ExtractPronunciation(entries, fallbackWord) {
     const audio = phonetics.map(p => p?.audio).find(Boolean) || '';
     return { word: fallbackWord, ipa, audio };
 }
+// Khôi phục và đồng bộ lại hàm loadData cũ cho HTML onclick
+if (typeof loadData === 'undefined') {
+    window.loadData = function() {
+        // Tự động tìm nút tải đề hoặc gọi hàm xử lý tương ứng
+        const loadBtn = document.getElementById('load-data-btn');
+        if (typeof fetchSheetData === 'function') {
+            fetchSheetData();
+        } else if (typeof handleLoadData === 'function') {
+            handleLoadData();
+        } else if (loadBtn) {
+            loadBtn.click();
+        }
+    };
+}
