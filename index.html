@@ -259,10 +259,6 @@ body.dark-mode .dict-v11-recent button { background:#2d2d2d; color:#eee; border-
                 <option value="">-- Chọn mã đề --</option>
             </select>
                 <button type="button" onclick="window.updateMadeList()" style="padding:10px 14px;background:#6f42c1;color:#fff;border:0;border-radius:8px;font-weight:bold;cursor:pointer;margin:2px 0 8px 0;">🔄 Atualizar danh sách mã đề</button>
-            <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
-                <input id="made-code-input" type="text" placeholder="Hoặc nhập Mã đề V41..." style="flex:1;padding:11px;border:1px solid #ccc;border-radius:8px;box-sizing:border-box;font-size:1em;">
-                <button type="button" onclick="window.loadV42ExamByInput()" style="padding:11px 14px;background:#17a2b8;color:#fff;border:0;border-radius:8px;font-weight:bold;cursor:pointer;">Tải mã đề</button>
-            </div>
             <div id="made-passage-preview"></div>
         </div>
     </div>
@@ -291,11 +287,6 @@ body.dark-mode .dict-v11-recent button { background:#2d2d2d; color:#eee; border-
 
     <!-- V41: TẠO ĐỀ TỰ ĐỘNG TỪ NGÂN HÀNG -->
     <button type="button" id="btn-tao-de-v41" onclick="window.openV41ExamGenerator()" style="width:100%;padding:12px;background:#6f42c1;color:#fff;border:none;border-radius:8px;font-weight:bold;font-size:1em;margin-top:10px;cursor:pointer;">🎯 Tạo đề tự động từ ngân hàng V41</button>
-
-    <!-- NÚT TẠO ĐỀ TỔNG HỢP MÔN TOÁN -->
-    <button type="button" id="btn-tao-de-toan" style="width: 100%; padding: 12px; background-color: #ffc107; color: #000; border: none; border-radius: 8px; font-weight: bold; font-size: 1em; margin-top: 10px; margin-bottom: 10px; cursor: pointer;">
-        🎯 Tạo đề tổng hợp (30 phút - 21 câu)
-    </button>
 
     <button type="button" id="start-btn" onclick="window.startQuizWithToolCheck()" style="width: 100%; padding: 16px; background: #007bff; color: white; border: none; cursor: pointer; margin-top: 5px; border-radius: 8px; font-weight: bold; font-size: 1.2em;">Bắt Đầu Làm Bài</button>
 
