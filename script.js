@@ -3221,13 +3221,9 @@ window.renderQuiz = function() {
     let html = '';
 
     AppState.currentQuizData.forEach((item, index) => {
-        let preparedReading = v424PrepareReadingItem(item);
-        if (preparedReading.passage) item.passage = preparedReading.passage;
-        if (preparedReading.question) item.question = preparedReading.question;
         let passage = item.passage;
-        let passageKey = item.readingGroup || preparedReading.group || passage;
-        if (passage && passage.trim() !== '' && !renderedPassages.has(passageKey)) {
-            renderedPassages.add(passageKey);
+        if (passage && passage.trim() !== '' && !renderedPassages.has(passage)) {
+            renderedPassages.add(passage);
             html += '<div class="passage-box"><div class="passage-tag">Đoạn văn đọc hiểu</div><div style="white-space: pre-line; margin-top: 10px;">' + escapeHTML(passage) + '</div></div>';
         }
 
@@ -4276,7 +4272,6 @@ window.startV42Exam = function(maDe) {
                     level: q.DoKho || q['Độ khó'] || meta.level || '',
                     skill: q.KyNang || q['Kỹ năng'] || meta.skill || ''
                 };
-                Object.assign(item, v424PrepareReadingItem(item));
                 item._correctKeys = getCorrectKeys(item);
                 item._shuffledKeys = shuffleArray(['a','b','c','d'].filter(k => item[k] !== ''));
                 return item;
@@ -4321,7 +4316,7 @@ window.startQuiz = function() {
 };
 
 // ============================================================
-// V42.3: Chỉnh sửa mã đề V41 đã tạo.
+// V42.4: Chỉnh sửa mã đề V41 đã tạo.
 // Giữ nguyên MaDe; thay đổi cấu hình + sinh lại danh sách câu hỏi.
 // Nếu mã đề đã có lượt làm, backend sẽ khóa chỉnh sửa nội dung.
 // ============================================================
@@ -4373,8 +4368,8 @@ window.startQuiz = function() {
       html+='<label>Chủ đề<select id="v423-topic" style="width:100%;padding:10px"><option value="">-- Tất cả --</option>'+topics.map(function(x){return '<option value="'+escapeHTML(x)+'">'+escapeHTML(x)+'</option>';}).join('')+'</select></label>';
       html+='<label>Độ khó<select id="v423-level" style="width:100%;padding:10px"><option value="">-- Tất cả --</option>'+levels.map(function(x){return '<option value="'+escapeHTML(x)+'">'+escapeHTML(x)+'</option>';}).join('')+'</select></label>';
       html+='<label id="v423-skill-wrap">Kỹ năng<select id="v423-skill" style="width:100%;padding:10px"><option value="">-- Tất cả --</option>'+skills.map(function(x){return '<option value="'+escapeHTML(x)+'">'+escapeHTML(x)+'</option>';}).join('')+'</select></label>';
-      html+='<label>Số câu<input id="v423-count" type="number" min="1" max="100" value="'+Math.max(1,Number(meta.count||qs.length||10))+'" style="width:100%;padding:10px;box-sizing:border-box"></label>';
-      html+='<label id="v423-reading-wrap" style="display:none">Số bài đọc<select id="v423-reading-count" style="width:100%;padding:10px"><option value="1">1 bài (5 câu)</option><option value="2">2 bài (10 câu)</option><option value="3">3 bài (15 câu)</option></select></label>';
+      html+='<label id="v423-count-wrap">Số câu<input id="v423-count" type="number" min="1" max="100" value="'+Math.max(1,Number(meta.count||qs.length||10))+'" style="width:100%;padding:10px;box-sizing:border-box"></label>';
+      html+='<label id="v423-reading-wrap" style="display:none">Số bài Reading<select id="v423-reading-count" style="width:100%;padding:10px"><option value="1">1 bài (5 câu)</option><option value="2">2 bài (10 câu)</option><option value="3">3 bài (15 câu)</option></select></label>';
       html+='<label>Thời gian (phút)<input id="v423-minutes" type="number" min="1" max="180" value="'+Math.max(1,Number(meta.minutes||30))+'" style="width:100%;padding:10px;box-sizing:border-box"></label>';
       html+='</div><input id="v423-name" value="'+escapeHTML(meta.name||'')+'" placeholder="Tên đề" style="width:100%;padding:10px;margin-top:10px;box-sizing:border-box">';
       html+='<div id="v423-status" style="margin-top:10px;padding:10px;background:#f5f5f5;border-radius:8px">Sẵn sàng chỉnh sửa.</div>';
@@ -4383,55 +4378,39 @@ window.startQuiz = function() {
       if(body)body.innerHTML=html;
       var ss=document.getElementById('v423-subject'), st=document.getElementById('v423-topic'), sl=document.getElementById('v423-level'), sk=document.getElementById('v423-skill');
       if(ss)ss.value=meta.subject||'Tiếng Anh'; if(st)st.value=topic; if(sl)sl.value=level; if(sk)sk.value=skill;
+      var erc=document.getElementById('v423-reading-count');
+      if(erc) erc.value=String(Math.max(1,Math.min(3,Math.round(Number(meta.count||qs.length||5)/5))));
+      function updateEditReadingMode(){
+        var on=cleanKey(ss.value||'Tiếng Anh')!==cleanKey('Toán') && cleanKey(sk.value||'')===cleanKey('Reading');
+        var rw=document.getElementById('v423-reading-wrap'),cw=document.getElementById('v423-count-wrap');
+        if(rw)rw.style.display=on?'block':'none'; if(cw)cw.style.display=on?'none':'block';
+        if(on&&erc)document.getElementById('v423-count').value=String(Number(erc.value||1)*5);
+      }
+      if(sk)sk.addEventListener('change',updateEditReadingMode); if(erc)erc.addEventListener('change',updateEditReadingMode);
       function refresh(){
         var subject=ss.value||'Tiếng Anh', b=v42EditBankForSubject(subject);
         function setSel(el, values, current){if(!el)return;el.innerHTML='<option value="">-- Tất cả --</option>'+Array.from(new Set(values.filter(Boolean))).map(function(x){return '<option value="'+escapeHTML(x)+'">'+escapeHTML(x)+'</option>';}).join('');if(current&&Array.from(el.options).some(function(o){return cleanKey(o.value)===cleanKey(current);}))el.value=current;}
         setSel(st,b.map(function(q){return v42EditVal(q,['ChuDe','Chủ đề','chuDe']);}),topic); setSel(sl,b.map(function(q){return v42EditVal(q,['DoKho','Độ khó','doKho']);}),level); setSel(sk,b.map(function(q){return v42EditVal(q,['KyNang','Kỹ năng','kyNang']);}),skill);
         var wrap=document.getElementById('v423-skill-wrap');if(wrap)wrap.style.display=cleanKey(subject)===cleanKey('Tiếng Anh')?'block':'none';
-        var rw=document.getElementById('v423-reading-wrap');if(rw)rw.style.display=(cleanKey(subject)===cleanKey('Tiếng Anh') && cleanKey(sk.value||skill)==='reading')?'block':'none';
-        var rc=document.getElementById('v423-reading-count');if(rc&&meta.count)rc.value=String(Math.max(1,Math.min(3,Math.round(Number(meta.count)/5))));
+        updateEditReadingMode();
       }
       if(ss)ss.onchange=function(){refresh();}; refresh();
       var save=document.getElementById('v423-save');
       if(save)save.onclick=function(){
-        var subject=ss.value||'Tiếng Anh', topic2=st.value||'', level2=sl.value||'', skill2=sk.value||'', count=Math.max(1,Math.min(100,parseInt(document.getElementById('v423-count').value,10)||10)), minutes=Math.max(1,Math.min(180,parseInt(document.getElementById('v423-minutes').value,10)||30)), name2=(document.getElementById('v423-name').value||'').trim(), b=v42EditBankForSubject(subject);
+        var subject=ss.value||'Tiếng Anh', topic2=st.value||'', level2=sl.value||'', skill2=sk.value||'', readingMode=cleanKey(subject)!==cleanKey('Toán')&&cleanKey(skill2)===cleanKey('Reading'), readingCount=readingMode?Math.max(1,Math.min(3,parseInt((erc||{}).value,10)||1)):0, count=readingMode?readingCount*5:Math.max(1,Math.min(100,parseInt(document.getElementById('v423-count').value,10)||10)), minutes=Math.max(1,Math.min(180,parseInt(document.getElementById('v423-minutes').value,10)||30)), name2=(document.getElementById('v423-name').value||'').trim(), b=v42EditBankForSubject(subject);
         var filtered=b.filter(function(q){var qt=v42EditVal(q,['ChuDe','Chủ đề','chuDe']),ql=v42EditVal(q,['DoKho','Độ khó','doKho']),qk=v42EditVal(q,['KyNang','Kỹ năng','kyNang']),qs2=v42EditVal(q,['TrangThai','Trạng thái','trangThai']);if(qs2&&cleanKey(qs2)!==cleanKey('Hoạt động'))return false;return(!topic2||cleanKey(qt)===cleanKey(topic2))&&(!level2||cleanKey(ql)===cleanKey(level2))&&(!skill2||cleanKey(qk)===cleanKey(skill2));});
-        var readingMode2=cleanKey(subject)===cleanKey('Tiếng Anh') && cleanKey(skill2)==='reading';
-        var picked2=[];
-        if(readingMode2){
-          var groups2={}; filtered.filter(v424IsReading).forEach(function(q){var g=v424ReadingGroup(q);if(g){if(!groups2[g])groups2[g]=[];groups2[g].push(q);}});
-          var keys2=Object.keys(groups2).filter(function(g){return groups2[g].length>=5;});
-          var readingCount2=Math.max(1,Math.min(3,parseInt((document.getElementById('v423-reading-count')||{}).value,10)||1));
-          if(keys2.length<readingCount2){document.getElementById('v423-status').textContent='❌ Không đủ bộ bài đọc: cần '+readingCount2+' bộ, hiện có '+keys2.length+'.';return;}
-          count=readingCount2*5; var ce=document.getElementById('v423-count');if(ce){ce.value=count;ce.disabled=true;}
-          shuffleArray(keys2).slice(0,readingCount2).forEach(function(g){picked2=picked2.concat(shuffleArray(groups2[g]).slice(0,5));});
-        } else {
-          var ce2=document.getElementById('v423-count');if(ce2)ce2.disabled=false;
-          if(filtered.length<count){document.getElementById('v423-status').textContent='❌ Không đủ câu phù hợp: cần '+count+', hiện có '+filtered.length+'.';return;}
-          picked2=shuffleArray(filtered).slice(0,count);
-        }
-        var ids=picked2.map(function(q){return v42EditVal(q,['MaCau','Mã câu','maCau','ID']);}).filter(Boolean);if(ids.length<count){document.getElementById('v423-status').textContent='❌ Một số câu chưa có MaCau.';return;}
+        function getGroups(arr){var m={},o=[];(arr||[]).forEach(function(q){var g=v42EditVal(q,['GhiChu','Ghi chú','ghiChu']);if(!g)return;if(!m[g]){m[g]=[];o.push(g);}m[g].push(q);});return o.map(function(g){return{id:g,questions:m[g]};}).filter(function(x){return x.questions.length===5;});}
+        var groupPool=readingMode?getGroups(filtered):[];
+        if(readingMode){if(groupPool.length<readingCount){document.getElementById('v423-status').textContent='❌ Không đủ bài Reading trọn bộ 5 câu: cần '+readingCount+', hiện có '+groupPool.length+'.';return;}} else if(filtered.length<count){document.getElementById('v423-status').textContent='❌ Không đủ câu phù hợp: cần '+count+', hiện có '+filtered.length+'.';return;}
+        var pickedGroups=readingMode?shuffleArray(groupPool).slice(0,readingCount):[];
+        var picked=readingMode?pickedGroups.reduce(function(a,g){return a.concat(g.questions);},[]):shuffleArray(filtered).slice(0,count);
+        var ids=picked.map(function(q){return v42EditVal(q,['MaCau','Mã câu','maCau','ID']);}).filter(Boolean);if(ids.length<count){document.getElementById('v423-status').textContent='❌ Một hoặc nhiều câu chưa có MaCau.';return;}
         save.disabled=true;document.getElementById('v423-status').textContent='⏳ Đang lưu mã đề...';
-        v42EditCall('editexam',{maDe:code,subject:subject,topic:topic2,skill:skill2,level:level2,minutes:minutes,name:name2,questionIds:ids.join(',')}).then(function(r){if(!r||!r.ok)throw new Error((r&&r.message)||'Không lưu được.');document.getElementById('v423-status').textContent='✅ Đã lưu thay đổi: '+r.count+' câu — '+r.minutes+' phút.';setTimeout(function(){window.closeV42EditExam();window.updateMadeList();var ms=document.getElementById('made-select');if(ms){ms.value=code;window.handleMadeChange();}},500);}).catch(function(e){document.getElementById('v423-status').textContent='❌ '+e.message;save.disabled=false;});
+        v42EditCall('editexam',{maDe:code,subject:subject,topic:topic2,skill:skill2,level:level2,minutes:minutes,name:name2,questionIds:ids.join(','),readingGroupIds:pickedGroups.map(function(g){return g.id;}).join(','),readingCount:readingCount}).then(function(r){if(!r||!r.ok)throw new Error((r&&r.message)||'Không lưu được.');document.getElementById('v423-status').textContent='✅ Đã lưu thay đổi: '+r.count+' câu — '+r.minutes+' phút.';setTimeout(function(){window.closeV42EditExam();window.updateMadeList();var ms=document.getElementById('made-select');if(ms){ms.value=code;window.handleMadeChange();}},500);}).catch(function(e){document.getElementById('v423-status').textContent='❌ '+e.message;save.disabled=false;});
       };
     }).catch(function(e){if(body)body.innerHTML='<div style="padding:12px;border:1px solid #dc3545;color:#b00020;border-radius:8px">❌ '+escapeHTML(e.message)+'</div>';});
   };
 })();
-
-// ============================================================
-// V42.4 READING GROUPS
-// GhiChu = READ-...-001 identifies one reading passage (5 questions).
-// CauHoi keeps the passage + question so the existing 18-column bank remains unchanged.
-// ============================================================
-function v424GetVal(q,keys){for(var i=0;i<keys.length;i++){if(q&&q[keys[i]]!=null&&String(q[keys[i]]).trim()!=='')return String(q[keys[i]]).trim();}return '';}
-function v424ReadingGroup(q){ return v424GetVal(q,['GhiChu','Ghi chú','ghichu','ReadingGroup','readingGroup']) || ''; }
-function v424IsReading(q){ var s=v424GetVal(q,['KyNang','Kỹ năng','kyNang','Skill']); return cleanKey(s)==='reading' || /^READ[-_]/i.test(v424ReadingGroup(q)); }
-function v424ReadingPassage(q){
-  var t=v424GetVal(q,['CauHoi','Câu hỏi','cauHoi','Question','question']);
-  var m=t.match(/^\[READING:([^\]]+)\]\s*\nĐọc đoạn văn sau:\s*\n([\s\S]*?)\n\s*\nCâu hỏi:\s*([\s\S]*)$/i);
-  return m ? {group:m[1].trim(),passage:m[2].trim(),question:m[3].trim()} : {group:v424ReadingGroup(q),passage:'',question:t};
-}
-function v424PrepareReadingItem(item){ var p=v424ReadingPassage(item), x=Object.assign({},item); if(p.group)x.readingGroup=p.group; if(p.passage)x.passage=p.passage; if(p.question)x.question=p.question; return x; }
 
 // V41.1 FIX: Frontend exam generator bridge + UI logic.
 (function(){
@@ -4443,6 +4422,16 @@ function v424PrepareReadingItem(item){ var p=v424ReadingPassage(item), x=Object.
     return '';
   }
   function uniq(arr){ var out=[]; (arr||[]).forEach(function(x){x=String(x||'').trim(); if(x && out.indexOf(x)<0) out.push(x);}); return out; }
+  function readingGroupId(q){ return val(q,['GhiChu','Ghi chú','ghiChu','ReadingGroup','readingGroup']); }
+  function readingGroups(bank, filtered){
+    var map={}; var order=[];
+    (filtered||[]).forEach(function(q){
+      var g=readingGroupId(q); if(!g)return;
+      if(!map[g]){map[g]=[];order.push(g);} map[g].push(q);
+    });
+    return order.map(function(g){return {id:g,questions:map[g]};}).filter(function(g){return g.questions.length===5;});
+  }
+  function isReadingSubjectSkill(subject, skill){ return cleanKey(subject)!==cleanKey('Toán') && cleanKey(skill)===cleanKey('Reading'); }
   function shuffle(arr){
     var a=(arr||[]).slice();
     for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1)),t=a[i];a[i]=a[j];a[j]=t;}
@@ -4463,9 +4452,20 @@ function v424PrepareReadingItem(item){ var p=v424ReadingPassage(item), x=Object.
     fillSelect('v41-level', bank.map(function(q){return val(q,['DoKho','Độ khó','doKho']);}), '-- Tất cả --');
     fillSelect('v41-skill', bank.map(function(q){return val(q,['KyNang','Kỹ năng','kyNang']);}), '-- Tất cả --');
     var wrap=document.getElementById('v41-skill-wrap'); if(wrap) wrap.style.display=cleanKey(subject)===cleanKey('Tiếng Anh')?'block':'none';
-    var rw=document.getElementById('v41-reading-wrap'); if(rw) rw.style.display=(cleanKey(subject)===cleanKey('Tiếng Anh') && cleanKey((document.getElementById('v41-skill')||{}).value||'')==='reading')?'block':'none';
+    updateReadingMode();
     setStatus('Ngân hàng '+subject+': '+bank.length+' câu. Sẵn sàng tạo đề.');
   }
+  function updateReadingMode(){
+    var subject=(document.getElementById('v41-subject')||{}).value||'Tiếng Anh';
+    var skill=(document.getElementById('v41-skill')||{}).value||'';
+    var on=isReadingSubjectSkill(subject,skill);
+    var rw=document.getElementById('v41-reading-wrap'), cw=document.getElementById('v41-count-wrap'), rc=document.getElementById('v41-reading-count'), count=document.getElementById('v41-count');
+    if(rw)rw.style.display=on?'block':'none';
+    if(cw)cw.style.display=on?'none':'block';
+    if(on&&rc&&count) count.value=String(Number(rc.value||1)*5);
+    if(rc) rc.onchange=function(){if(on&&count)count.value=String(Number(rc.value||1)*5);};
+  }
+  window.v41UpdateReadingMode=updateReadingMode;
   window.openV41ExamGenerator=function(){
     var modal=document.getElementById('v41-exam-modal');
     if(!modal){ alert('Không tìm thấy cửa sổ tạo đề V41.'); return; }
@@ -4528,10 +4528,11 @@ function v424PrepareReadingItem(item){ var p=v424ReadingPassage(item), x=Object.
     var topic=(document.getElementById('v41-topic')||{}).value || '';
     var level=(document.getElementById('v41-level')||{}).value || '';
     var skill=(document.getElementById('v41-skill')||{}).value || '';
-    var count=Math.max(1,Math.min(100,parseInt((document.getElementById('v41-count')||{}).value,10)||10));
+    var readingMode=isReadingSubjectSkill(subject,skill);
+    var readingCount=readingMode?Math.max(1,Math.min(3,parseInt((document.getElementById('v41-reading-count')||{}).value,10)||1)):0;
+    var count=readingMode?readingCount*5:Math.max(1,Math.min(100,parseInt((document.getElementById('v41-count')||{}).value,10)||10));
     var minutes=Math.max(1,Math.min(180,parseInt((document.getElementById('v41-minutes')||{}).value,10)||20));
     var variants=Math.max(1,Math.min(20,parseInt((document.getElementById('v41-variants')||{}).value,10)||1));
-    var readingCount=Math.max(1,Math.min(3,parseInt((document.getElementById('v41-reading-count')||{}).value,10)||1));
     var name=((document.getElementById('v41-name')||{}).value||'').trim();
     var bank=bankForSubject(subject);
     var filtered=bank.filter(function(q){
@@ -4542,17 +4543,16 @@ function v424PrepareReadingItem(item){ var p=v424ReadingPassage(item), x=Object.
       if(status && cleanKey(status)!==cleanKey('Hoạt động')) return false;
       return (!topic || cleanKey(qTopic)===cleanKey(topic)) && (!level || cleanKey(qLevel)===cleanKey(level)) && (!skill || cleanKey(qSkill)===cleanKey(skill));
     });
-    var readingMode = cleanKey(subject)===cleanKey('Tiếng Anh') && cleanKey(skill)==='reading';
-    var readingGroups={};
+    var groupPool=readingMode?readingGroups(bank,filtered):[];
     if(readingMode){
-      filtered.filter(v424IsReading).forEach(function(q){var g=v424ReadingGroup(q);if(g){if(!readingGroups[g])readingGroups[g]=[];readingGroups[g].push(q);}});
-      var availableReadingGroups=Object.keys(readingGroups).filter(function(g){return readingGroups[g].length>=5;});
-      if(availableReadingGroups.length<readingCount){setStatus('Không đủ bộ bài đọc: cần '+readingCount+' bộ 5 câu, hiện có '+availableReadingGroups.length+'.',false);return;}
-      count=readingCount*5; var countInput=document.getElementById('v41-count'); if(countInput){countInput.value=count;countInput.disabled=true;}
-    } else { var countInput2=document.getElementById('v41-count'); if(countInput2)countInput2.disabled=false; }
-    if(filtered.length<count && !readingMode){ setStatus('Không đủ câu phù hợp: cần '+count+', hiện có '+filtered.length+'.',false); return; }
+      if(groupPool.length<readingCount){setStatus('Không đủ bài Reading trọn bộ 5 câu: cần '+readingCount+', hiện có '+groupPool.length+'.',false);return;}
+    } else if(filtered.length<count){ setStatus('Không đủ câu phù hợp: cần '+count+', hiện có '+filtered.length+'.',false); return; }
     var ids=filtered.map(function(q){return val(q,['MaCau','Mã câu','maCau','ID']);}).filter(Boolean);
-    if(ids.length<count){setStatus('Một số câu chưa có MaCau. Vui lòng bổ sung mã câu trong ngân hàng.',false);return;}
+    if(!readingMode && ids.length<count){setStatus('Một số câu chưa có MaCau. Vui lòng bổ sung mã câu trong ngân hàng.',false);return;}
+    if(readingMode){
+      var bad=groupPool.some(function(g){return g.questions.some(function(q){return !val(q,['MaCau','Mã câu','maCau','ID']);});});
+      if(bad){setStatus('Một hoặc nhiều bộ Reading chưa đủ MaCau cho 5 câu.',false);return;}
+    }
     var result=document.getElementById('v41-result'); if(result) result.innerHTML='';
     var btn=document.getElementById('v41-generate-btn'); if(btn) btn.disabled=true;
     var created=[];
@@ -4564,19 +4564,17 @@ function v424PrepareReadingItem(item){ var p=v424ReadingPassage(item), x=Object.
         window[cb]=function(data){cleanup();resolve(data);};
         function cleanup(){clearTimeout(timer);try{delete window[cb];}catch(e){window[cb]=undefined;}if(script.parentNode)script.parentNode.removeChild(script);}
         script.onerror=function(){cleanup();reject(new Error('Không kết nối được Apps Script.'));};
-        var params='?action=createexam&subject='+encodeURIComponent(payload.subject)+'&topic='+encodeURIComponent(payload.topic)+'&skill='+encodeURIComponent(payload.skill)+'&level='+encodeURIComponent(payload.level)+'&questionIds='+encodeURIComponent(payload.questionIds.join(','))+'&minutes='+encodeURIComponent(payload.minutes)+'&name='+encodeURIComponent(payload.name)+'&callback='+cb;
+        var params='?action=createexam&subject='+encodeURIComponent(payload.subject)+'&topic='+encodeURIComponent(payload.topic)+'&skill='+encodeURIComponent(payload.skill)+'&level='+encodeURIComponent(payload.level)+'&questionIds='+encodeURIComponent(payload.questionIds.join(','))+'&readingGroupIds='+encodeURIComponent((payload.readingGroupIds||[]).join(','))+'&readingCount='+encodeURIComponent(payload.readingCount||0)+'&minutes='+encodeURIComponent(payload.minutes)+'&name='+encodeURIComponent(payload.name)+'&callback='+cb;
         script.src=API_URL+params; document.body.appendChild(script);
       });
     }
     (async function(){
       try{
         for(var n=0;n<variants;n++){
-          var picked;
-          if(readingMode){
-            picked=[]; shuffle(Object.keys(readingGroups)).slice(0,readingCount).forEach(function(g){picked=picked.concat(shuffle(readingGroups[g]).slice(0,5));});
-          } else { picked=shuffle(filtered).slice(0,count); }
-          var p={subject:subject,topic:topic,skill:skill,level:level,questionIds:picked.map(function(q){return val(q,['MaCau','Mã câu','maCau','ID']);}),minutes:minutes,name:name?name+' - Mã '+(n+1):''};
-          setStatus('Đang tạo mã đề '+(n+1)+'/'+variants+'...');
+          var pickedGroups=readingMode?shuffle(groupPool).slice(0,readingCount):[];
+          var picked=readingMode?pickedGroups.reduce(function(a,g){return a.concat(g.questions);},[]):shuffle(filtered).slice(0,count);
+          var p={subject:subject,topic:topic,skill:skill,level:level,questionIds:picked.map(function(q){return val(q,['MaCau','Mã câu','maCau','ID']);}),readingGroupIds:pickedGroups.map(function(g){return g.id;}),readingCount:readingCount,minutes:minutes,name:name?name+' - Mã '+(n+1):''};
+          setStatus(readingMode?'Đang tạo mã đề '+(n+1)+'/'+variants+' — '+readingCount+' bài Reading ('+count+' câu)...':'Đang tạo mã đề '+(n+1)+'/'+variants+'...');
           var data=await callCreate(p);
           if(!data || !data.ok) throw new Error((data&&data.message)||'Không tạo được đề.');
           created.push(data);
@@ -4584,7 +4582,7 @@ function v424PrepareReadingItem(item){ var p=v424ReadingPassage(item), x=Object.
         setStatus('Đã tạo '+created.length+' mã đề thành công.');
         try { if (typeof window.updateMadeList === 'function') window.updateMadeList(); } catch(e) {}
         if(result){
-          result.innerHTML='<div style="padding:10px;border:1px solid #198754;border-radius:8px;background:#f0fff5"><b>✅ Tạo đề thành công</b><br>'+created.map(function(x){return 'Mã đề: <b>'+escapeHTML(x.maDe)+'</b> — '+x.count+' câu — '+x.minutes+' phút <button type="button" class="v41-preview-btn" data-v41-code="'+escapeHTML(x.maDe)+'" style="margin-left:8px;padding:5px 9px;border:0;border-radius:6px;background:#0d6efd;color:#fff;cursor:pointer">Xem đề</button>';}).join('<br>')+'</div>';
+          result.innerHTML='<div style="padding:10px;border:1px solid #198754;border-radius:8px;background:#f0fff5"><b>✅ Tạo đề thành công</b><br>'+created.map(function(x){return 'Mã đề: <b>'+escapeHTML(x.maDe)+'</b> — '+x.count+' câu'+(x.readingGroupIds&&x.readingGroupIds.length?' — '+x.readingGroupIds.length+' bài Reading':'')+' — '+x.minutes+' phút <button type="button" class="v41-preview-btn" data-v41-code="'+escapeHTML(x.maDe)+'" style="margin-left:8px;padding:5px 9px;border:0;border-radius:6px;background:#0d6efd;color:#fff;cursor:pointer">Xem đề</button>';}).join('<br>')+'</div>';
           Array.prototype.forEach.call(result.querySelectorAll('.v41-preview-btn'),function(b){b.addEventListener('click',function(){window.openV41ExamPreview(b.getAttribute('data-v41-code')||'');});});
         }
       }catch(e){ setStatus('Lỗi: '+e.message,false); }
@@ -4593,8 +4591,9 @@ function v424PrepareReadingItem(item){ var p=v424ReadingPassage(item), x=Object.
   };
   document.addEventListener('DOMContentLoaded',function(){
     var s=document.getElementById('v41-subject');
+    var sk=document.getElementById('v41-skill');
     if(s) s.addEventListener('change',refreshV41Filters);
-    var sk=document.getElementById('v41-skill'); if(sk) sk.addEventListener('change',function(){var rw=document.getElementById('v41-reading-wrap'); if(rw) rw.style.display=(cleanKey((document.getElementById('v41-subject')||{}).value||'')===cleanKey('Tiếng Anh') && cleanKey(this.value||'')==='reading')?'block':'none';});
+    if(sk) sk.addEventListener('change',updateReadingMode);
   });
 })();
 
