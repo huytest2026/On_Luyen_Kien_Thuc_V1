@@ -1840,8 +1840,6 @@ window.handleMadeChange = function() {
     if (!madeSelect || !previewEl) return;
     
     const selectedMade = madeSelect.value.trim();
-    const codeInput = document.getElementById('made-code-input');
-    if (codeInput) codeInput.value = selectedMade;
     if (!selectedMade) {
         previewEl.innerHTML = '';
         return;
@@ -3507,10 +3505,6 @@ var submitChuDe = (v42Meta && v42Meta.maDe)
     ? ((v42Meta.topic || v42Meta.skill || "") + (v42Meta.topic || v42Meta.skill ? " — " : "") + "Mã đề: " + v42Meta.maDe)
     : selectedTopicsStr;
 
-if (!submitChuDe || submitChuDe === "") {
-    submitChuDe = "Đề tổng hợp Toán (21 câu)";
-}
-
 // Cập nhật bảng xếp hạng cục bộ ngay lập tức.
 // Không cần tải lại rankings từ Google Sheets sau khi nộp bài.
 addLocalRankingAfterSubmit(maHS, score, submitMon, (v42Meta && v42Meta.level) ? v42Meta.level : (level || 1), submitChuDe);
@@ -4115,315 +4109,6 @@ window.toggleQuestionBank = function() {
     if (panel.style.display === 'block') window.renderQuestionBank();
 };
 
-document.addEventListener('DOMContentLoaded', () => {
-    const btnTaoDeToan = document.getElementById('btn-tao-de-toan');
-    
-    if (btnTaoDeToan) {
-        const newBtn = btnTaoDeToan.cloneNode(true);
-        btnTaoDeToan.parentNode.replaceChild(newBtn, btnTaoDeToan);
-
-        newBtn.addEventListener('click', async function(e) {
-            e.stopPropagation();
-            e.stopImmediatePropagation();
-
-            newBtn.innerText = "Đang tải dữ liệu trực tiếp...";
-            newBtn.disabled = true;
-
-            // V15: dùng ngân hàng câu hỏi đã tải trong AppState, không fetch lần nữa.
-            let dataList = (window.AppState && Array.isArray(AppState.allQuizData)) ? AppState.allQuizData : [];
-
-            if (!dataList || dataList.length === 0) {
-                alert("Dữ liệu câu hỏi chưa được tải. Vui lòng bấm 'Xác nhận Mã & Tải đề' trước!");
-                resetBtn();
-                return;
-            }
-
-            // Chuyển về cấu trúc thống nhất của AppState.
-            let filteredPool = dataList.filter(q => cleanKey(q.mon || '') === cleanKey('Toán'));
-            if (filteredPool.length === 0) filteredPool = dataList;
-
-            let cauHinh = {
-                'Hình học': 2,
-                'Đổi đơn vị': 6,
-                'Phân số': 4,
-                'Phép tính số thập phân': 4,
-                'So sánh phân số': 5
-            };
-
-            let selectedQuestions = [];
-            let usedIds = new Set();
-
-            for (let chuDe in cauHinh) {
-                let countNeeded = cauHinh[chuDe];
-                let pool = filteredPool.filter(q => {
-                    let c = q['Chủ đề'] || q['chuDe'] || q['topic'] || "";
-                    return c.toString().trim().toLowerCase() === chuDe.toLowerCase();
-                });
-
-                pool = pool.sort(() => Math.random() - 0.5);
-                let picked = pool.slice(0, countNeeded);
-                
-                picked.forEach(item => {
-                    selectedQuestions.push(item);
-                    usedIds.add(item);
-                });
-            }
-
-            if (selectedQuestions.length < 21) {
-                let remainingPool = filteredPool.filter(q => !usedIds.has(q)).sort(() => Math.random() - 0.5);
-                let neededMore = 21 - selectedQuestions.length;
-                let extraPicked = remainingPool.slice(0, neededMore);
-                selectedQuestions = selectedQuestions.concat(extraPicked);
-            }
-
-            selectedQuestions = selectedQuestions.sort(() => Math.random() - 0.5);
-
-            let setupScreen = document.querySelector('.setup-screen, #setup-section, form');
-            if (setupScreen) setupScreen.style.display = 'none';
-
-            let htmlContent = `<div style="max-width: 800px; margin: 0 auto; padding: 20px; background: #f9f9f9; position: relative;">
-                
-                <!-- Popup Máy tính đã sửa lỗi vùng đen dư thừa bằng height: auto và display: inline-block -->
-                <div id="calc-modal" style="display: none; position: fixed; top: 120px; right: 50px; background: #222; padding: 10px; border-radius: 8px; z-index: 9999; box-shadow: 0 8px 20px rgba(0,0,0,0.4); width: 210px; height: auto !important; max-height: none !important; user-select: none;">
-                    
-                    <!-- Thanh tiêu đề kéo thả -->
-                    <div id="calc-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; cursor: move; background: #333; padding: 4px 8px; border-radius: 4px;">
-                        <span style="color: #ff9800; font-weight: bold; font-size: 13px;">🧮 Máy tính</span>
-                        <button id="calc-close" onclick="closeCalculatorModal()" style="background: #d32f2f; color: white; border: none; border-radius: 3px; cursor: pointer; padding: 1px 5px; font-size: 12px;">✕</button>
-                    </div>
-
-                    <input type="text" id="calc-display" readonly style="width: 100%; height: 32px; background: #fff; text-align: right; font-size: 16px; padding: 4px; margin-bottom: 8px; box-sizing: border-box; border-radius: 4px; border: none;" value="">
-                    
-                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;">
-                        <button class="calc-btn" onclick="calcClear()" style="background: #d32f2f; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">C</button>
-                        <button class="calc-btn" onclick="calcInput('(')" style="background: #555; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">(</button>
-                        <button class="calc-btn" onclick="calcInput(')')" style="background: #555; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">)</button>
-                        <button class="calc-btn" onclick="calcInput('÷')" style="background: #ff9800; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">÷</button>
-                        
-                        <button class="calc-btn" onclick="calcInput('7')" style="background: #666; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">7</button>
-                        <button class="calc-btn" onclick="calcInput('8')" style="background: #666; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">8</button>
-                        <button class="calc-btn" onclick="calcInput('9')" style="background: #666; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">9</button>
-                        <button class="calc-btn" onclick="calcInput('×')" style="background: #ff9800; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">×</button>
-                        
-                        <button class="calc-btn" onclick="calcInput('4')" style="background: #666; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">4</button>
-                        <button class="calc-btn" onclick="calcInput('5')" style="background: #666; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">5</button>
-                        <button class="calc-btn" onclick="calcInput('6')" style="background: #666; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">6</button>
-                        <button class="calc-btn" onclick="calcInput('-')" style="background: #ff9800; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">-</button>
-                        
-                        <button class="calc-btn" onclick="calcInput('1')" style="background: #666; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">1</button>
-                        <button class="calc-btn" onclick="calcInput('2')" style="background: #666; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">2</button>
-                        <button class="calc-btn" onclick="calcInput('3')" style="background: #666; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">3</button>
-                        <button class="calc-btn" onclick="calcInput('+')" style="background: #ff9800; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">+</button>
-                        
-                        <button class="calc-btn" onclick="calcInput('0')" style="background: #666; color:white; padding: 6px; border:none; border-radius:3px; grid-column: span 2; font-weight:bold; cursor:pointer; font-size:13px;">0</button>
-                        <button class="calc-btn" onclick="calcInput('.')" style="background: #666; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">.</button>
-                        <button class="calc-btn" onclick="calcCalculate()" style="background: #4caf50; color:white; padding: 6px; border:none; border-radius:3px; font-weight:bold; cursor:pointer; font-size:13px;">=</button>
-                    </div>
-                </div>
-
-                <!-- Thanh điều hướng phía trên -->
-                <div style="display: flex; justify-content: space-between; align-items: center; background: #fff; padding: 12px 15px; border-radius: 8px; border: 2px solid #b71c1c; margin-bottom: 20px; position: sticky; top: 10px; z-index: 100; box-shadow: 0 4px 6px rgba(0,0,0,0.1); flex-wrap: wrap; gap: 10px;">
-                    <button id="btn-calc-toggle" onclick="openCalculatorModal()" style="background: #ff9800; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: bold; cursor: pointer;">🧮 Calculator</button>
-                    '<button type="button" onclick="window.printPDF()" style="background: #28a745; color: white; border: none; padding: 10px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 1em;">🖨️ In / PDF</button>' +
-                    <button id="btn-home" style="background: #607d8b; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: bold; cursor: pointer;">🏠 Trang chủ</button>
-                    <div style="font-size: 15px; font-weight: bold; color: #333;">Đúng: <span id="count-dung" style="color: green; font-size: 18px;">0</span> | Sai: <span id="count-sai" style="color: red; font-size: 18px;">0</span></div>
-                    <div style="font-size: 15px; font-weight: bold; color: #d32f2f; background: #ffebee; padding: 6px 12px; border-radius: 6px;">⏱ <span id="timer">30:00</span></div>
-                </div>
-                <h2 style="text-align: center; color: #b71c1c; margin-bottom: 20px;">ĐỀ TỔNG HỢP TOÁN (21 CÂU)</h2>`;
-
-            selectedQuestions.forEach((q, index) => {
-                let qText = q.question || q['Nội dung câu hỏi'] || q['Câu hỏi'] || "";
-                let a = q.a || q['Đáp án A'] || "";
-                let b = q.b || q['Đáp án B'] || "";
-                let c = q.c || q['Đáp án C'] || "";
-                let d = q.d || q['Đáp án D'] || "";
-
-                htmlContent += `
-                    <div class="question-card" id="q_card_${index}" style="background: white; border: 2px solid #dcdcdc; border-radius: 8px; padding: 15px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-                        <p style="font-weight: bold; font-size: 16px; color: #333;">Câu ${index + 1}: ${qText}</p>
-                        <div style="margin-left: 15px;">
-                            <label class="ans-label ans_${index}" data-ans="A" style="display: block; margin: 8px 0; padding: 6px 10px; border-radius: 4px; cursor: pointer;"><input type="radio" name="question_${index}" value="A"> A. ${a}</label>
-                            <label class="ans-label ans_${index}" data-ans="B" style="display: block; margin: 8px 0; padding: 6px 10px; border-radius: 4px; cursor: pointer;"><input type="radio" name="question_${index}" value="B"> B. ${b}</label>
-                            <label class="ans-label ans_${index}" data-ans="C" style="display: block; margin: 8px 0; padding: 6px 10px; border-radius: 4px; cursor: pointer;"><input type="radio" name="question_${index}" value="C"> C. ${c}</label>
-                            <label class="ans-label ans_${index}" data-ans="D" style="display: block; margin: 8px 0; padding: 6px 10px; border-radius: 4px; cursor: pointer;"><input type="radio" name="question_${index}" value="D"> D. ${d}</label>
-                        </div>
-                    </div>`;
-            });
-
-            htmlContent += `<button id="custom-submit-btn" style="display: block; width: 100%; padding: 12px; background: #2e7d32; color: white; font-size: 18px; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; margin-top: 20px;">Nộp bài tổng kết</button></div>`;
-
-            let containerTarget = document.getElementById('math-custom-container') || document.querySelector('#quiz-view') || document.body;
-            containerTarget.innerHTML = htmlContent;
-            if (containerTarget.id === 'math-custom-container') {
-                containerTarget.style.display = 'block';
-                const mainStartScreen = document.getElementById('start-screen');
-                if (mainStartScreen) mainStartScreen.style.display = 'none';
-            }
-
-            // Xử lý kéo thả (Draggable)
-            const calcModal = document.getElementById('calc-modal');
-            const calcHeader = document.getElementById('calc-header');
-            let isDragging = false;
-            let offsetX, offsetY;
-
-            calcHeader.addEventListener('mousedown', (e) => {
-                isDragging = true;
-                offsetX = e.clientX - calcModal.offsetLeft;
-                offsetY = e.clientY - calcModal.offsetTop;
-                calcModal.style.right = 'auto'; 
-            });
-
-            document.addEventListener('mousemove', (e) => {
-                if (!isDragging) return;
-                calcModal.style.left = (e.clientX - offsetX) + 'px';
-                calcModal.style.top = (e.clientY - offsetY) + 'px';
-            });
-
-            document.addEventListener('mouseup', () => {
-                isDragging = false;
-            });
-
-            // Nút Trang chủ
-            document.getElementById('btn-home').addEventListener('click', () => {
-                window.startNewQuizWithoutReload();
-            });
-
-            // Hàm mở/đóng máy tính
-            window.openCalculatorModal = function() {
-                if (calcModal) calcModal.style.display = 'block';
-            };
-
-            window.closeCalculatorModal = function() {
-                if (calcModal) calcModal.style.display = 'none';
-            };
-
-            window.calcInput = function(value) {
-                const display = document.getElementById('calc-display');
-                if (display) {
-                    display.value += value;
-                }
-            };
-
-            window.calcClear = function() {
-                const display = document.getElementById('calc-display');
-                if (display) {
-                    display.value = '';
-                }
-            };
-
-            window.calcCalculate = function() {
-                const display = document.getElementById('calc-display');
-                if (!display || !display.value.trim()) return;
-
-                try {
-                    let expression = display.value.replace(/×/g, '*').replace(/÷/g, '/');
-                    let result = safeEvaluate(expression);
-                    
-                    if (result !== undefined && !isNaN(result)) {
-                        display.value = result;
-                    } else {
-                        display.value = 'Lỗi';
-                    }
-                } catch (e) {
-                    display.value = 'Lỗi';
-                }
-            };
-
-            let scoreDung = 0;
-            let scoreSai = 0;
-
-            selectedQuestions.forEach((q, index) => {
-                let correctRaw = q.correct || q['Đáp án đúng'] || "";
-                let correctAns = correctRaw.toString().trim().toUpperCase();
-                let radios = document.querySelectorAll(`input[name="question_${index}"]`);
-
-                radios.forEach(radio => {
-                    radio.addEventListener('change', function() {
-                        radios.forEach(r => r.disabled = true);
-
-                        let chosenVal = this.value;
-                        let labels = document.querySelectorAll(`.ans_${index}`);
-
-                        if (chosenVal === correctAns) {
-                            scoreDung++;
-                            document.getElementById('count-dung').innerText = scoreDung;
-                        } else {
-                            scoreSai++;
-                            document.getElementById('count-sai').innerText = scoreSai;
-                        }
-
-                        labels.forEach(lbl => {
-                            let lblAns = lbl.getAttribute('data-ans');
-                            if (lblAns === correctAns) {
-                                lbl.style.background = "#c8e6c9";
-                                lbl.style.fontWeight = "bold";
-                            }
-                            if (lblAns === chosenVal && chosenVal !== correctAns) {
-                                lbl.style.background = "#ffcdd2";
-                            }
-                        });
-                    });
-                });
-            });
-
-            document.getElementById('custom-submit-btn').addEventListener('click', () => {
-                if (window.timerInterval) clearInterval(window.timerInterval);
-
-                const maHS = document.getElementById('student-code')?.value.trim() || localStorage.getItem('saved_maHS') || '';
-                const customTotal = selectedQuestions.length || 21;
-                const customScore = Math.round((scoreDung / customTotal) * 10 * 10) / 10;
-
-                // Gửi kết quả đề tổng hợp lên Google Sheets nhưng KHÔNG tải lại dữ liệu.
-                if (maHS) {
-                    fetch(API_URL, {
-                        method: 'POST',
-                        mode: 'no-cors',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            maHS: maHS,
-                            mon: 'Toán',
-                            score: customScore,
-                            level: 1,
-                            chuDe: 'Đề tổng hợp Toán (21 câu)',
-                            made: 'Đề tổng hợp',
-                            details: []
-                        })
-                    }).catch(err => console.log('❌ Lỗi gửi kết quả đề tổng hợp:', err));
-
-                    addLocalRankingAfterSubmit(maHS, customScore, 'Toán', 1, 'Đề tổng hợp Toán (21 câu)');
-                }
-
-                alert(`Bạn đã hoàn thành bài thi!\n- Số câu đúng: ${scoreDung}\n- Số câu sai: ${scoreSai}\n- Điểm: ${customScore} đ`);
-                window.startNewQuizWithoutReload();
-            });
-
-            let timeLeft = 30 * 60;
-            if (window.timerInterval) clearInterval(window.timerInterval);
-            window.timerInterval = setInterval(() => {
-                timeLeft--;
-                let m = Math.floor(timeLeft / 60);
-                let s = timeLeft % 60;
-                let timerDisplay = document.getElementById('timer');
-                if (timerDisplay) {
-                    timerDisplay.innerText = `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
-                }
-                if (timeLeft <= 0) {
-                    clearInterval(window.timerInterval);
-                    alert("Hết thời gian làm bài!");
-                    document.getElementById('custom-submit-btn')?.click();
-                }
-            }, 1000);
-        });
-    }
-
-    function resetBtn() {
-        const btn = document.getElementById('btn-tao-de-toan');
-        if (btn) {
-            btn.innerText = "🎯 Tạo đề tổng hợp Toán (30 phút - 21 câu)";
-            btn.disabled = false;
-        }
-    }
-});
 window.downloadPDF = function() {
     // 1. Lấy phần thẻ chứa danh sách câu hỏi / bài tập (ví dụ id="quiz-container")
     const element = document.getElementById('quiz-container'); 
@@ -4514,7 +4199,7 @@ document.addEventListener('click', function(e) {
     }
 }, true);
 // ============================================================
-// BỘ TỰ ĐỘNG BẮT MỌI LẦN NỘP BÀI (ÁP DỤNG CẢ ĐỀ THƯỜNG VÀ ĐỀ TỔNG HỢP 21 CÂU)
+// BỘ TỰ ĐỘNG BẮT MỌI LẦN NỘP BÀI
 // ============================================================
 (function() {
     var originalFetch = window.fetch;
@@ -4528,15 +4213,7 @@ document.addEventListener('click', function(e) {
             try {
                 var data = JSON.parse(options.body);
                 
-                // 1. Tự động bổ sung tên Chủ đề nếu làm Đề tổng hợp 21 câu mà bị trống
-                if (!data.chuDe || data.chuDe === "" || data.chuDe === "undefined") {
-                    data.chuDe = "Đề tổng hợp Toán (21 câu)";
-                }
-                if (!data.mon || data.mon === "undefined") {
-                    data.mon = "Toán";
-                }
-
-                // 2. Tự động đính kèm Số lần mở & Lịch sử máy tính khoa học
+                // 1. Tự động đính kèm Số lần mở & Lịch sử máy tính khoa học
                 data.calcOpenCount = (window.calcLogs && window.calcLogs.openCount) ? window.calcLogs.openCount : 0;
                 data.calcHistory = (window.calcLogs && window.calcLogs.history && window.calcLogs.history.length > 0) 
                              ? window.calcLogs.history.map(item => 
@@ -4562,25 +4239,6 @@ document.addEventListener('click', function(e) {
 function isV42GeneratedExamCode(code) {
     return /^(?:ENG5|TOAN5)_\d{14}_\d{3}$/i.test(String(code || '').trim());
 }
-
-window.loadV42ExamByInput = function() {
-    const input = document.getElementById('made-code-input');
-    const select = document.getElementById('made-select');
-    const code = input ? input.value.trim() : '';
-    if (!code) return alert('Vui lòng nhập Mã đề.');
-    if (!isV42GeneratedExamCode(code)) return alert('Mã đề V41 không đúng định dạng. Ví dụ: ENG5_20260902160047_126');
-    if (select) {
-        let found = Array.from(select.options).find(o => cleanKey(o.value) === cleanKey(code));
-        if (!found) {
-            const opt = document.createElement('option');
-            opt.value = code;
-            opt.textContent = 'Mã đề V41: ' + code;
-            select.appendChild(opt);
-        }
-        select.value = code;
-        window.handleMadeChange();
-    }
-};
 
 window.startV42Exam = function(maDe) {
     const code = String(maDe || '').trim();
