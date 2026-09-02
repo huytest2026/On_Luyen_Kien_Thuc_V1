@@ -35,7 +35,9 @@ let AppState = {
     loadedForMaHS: '',
     dataSource: '',
     dataLoadedAt: 0,
-    submitInProgress: false
+    submitInProgress: false,
+    v42ExamActive: false,
+    v42ExamMeta: null
 };
 
 // ============================================================
@@ -134,6 +136,8 @@ window.startNewQuizWithoutReload = function() {
     AppState.wrongCount = 0;
     AppState.wrongQuestions = [];
     AppState.currentQuizData = [];
+    AppState.v42ExamActive = false;
+    AppState.v42ExamMeta = null;
 
     const resultContainer = document.getElementById('result-container');
     if (resultContainer) resultContainer.remove();
@@ -1836,8 +1840,15 @@ window.handleMadeChange = function() {
     if (!madeSelect || !previewEl) return;
     
     const selectedMade = madeSelect.value.trim();
+    const codeInput = document.getElementById('made-code-input');
+    if (codeInput) codeInput.value = selectedMade;
     if (!selectedMade) {
         previewEl.innerHTML = '';
+        return;
+    }
+
+    if (isV42GeneratedExamCode(selectedMade)) {
+        previewEl.innerHTML = '<div style="background:#e8f5e9;border:1px solid #198754;padding:12px;border-radius:8px;margin-top:6px;"><b style="color:#198754;">🎯 Đề V41:</b> đang sẵn sàng tải theo Mã đề <b>' + escapeHTML(selectedMade) + '</b>. Bấm <b>Bắt Đầu Làm Bài</b> để làm đúng đề này.</div>';
         return;
     }
 
@@ -2406,14 +2417,9 @@ function getLatestCompletedTopics(maHS, mon) {
 }
 
 window.updateMadeList = function() {
-    const monSelect = document.getElementById('subject-select')
-        ? document.getElementById('subject-select').value.trim()
-        : '';
-    const maHS = document.getElementById('student-code')
-        ? document.getElementById('student-code').value.trim()
-        : '';
+    const monSelect = document.getElementById('subject-select') ? document.getElementById('subject-select').value.trim() : '';
+    const maHS = document.getElementById('student-code') ? document.getElementById('student-code').value.trim() : '';
     const madeSelect = document.getElementById('made-select');
-
     if (!madeSelect) return;
 
     if (!monSelect || !maHS) {
@@ -2423,9 +2429,7 @@ window.updateMadeList = function() {
 
     const cleanMonSelect = cleanKey(monSelect);
     const allowedMadeValues = getAllowedMadeValues(maHS, monSelect);
-
-    // Chỉ hiển thị MADE vừa được cấp quyền vừa thực sự tồn tại trong dữ liệu câu hỏi.
-    const authorizedMades = allowedMadeValues.filter((made, index, arr) => {
+    const legacyMades = allowedMadeValues.filter((made, index, arr) => {
         const madeKey = cleanKey(made);
         const existsInQuizData = AppState.allQuizData.some(i =>
             cleanKey(i.mon || '') === cleanMonSelect &&
@@ -2436,14 +2440,34 @@ window.updateMadeList = function() {
     });
 
     madeSelect.innerHTML = '<option value="">-- Chọn mã đề --</option>' +
-        authorizedMades.map(m =>
-            '<option value="' + escapeHTML(m) + '">Mã đề: ' +
-            escapeHTML(m) + '</option>'
-        ).join('');
+        legacyMades.map(m => '<option value="' + escapeHTML(m) + '">Mã đề: ' + escapeHTML(m) + '</option>').join('');
+    if (legacyMades.length === 0) madeSelect.innerHTML = '<option value="">-- Đang tải mã đề được cấp --</option>';
 
-    if (authorizedMades.length === 0) {
-        madeSelect.innerHTML = '<option value="">-- Chưa được phân quyền mã đề --</option>';
-    }
+    // V42: đọc riêng các mã đề tự động trong DE_THI đã được cấp cho học sinh.
+    const cb = 'handleV42ExamList_' + Date.now();
+    window[cb] = function(result) {
+        try {
+            if (!result || !result.ok) return;
+            const exams = Array.isArray(result.exams) ? result.exams : [];
+            exams.forEach(ex => {
+                if (!ex || !ex.maDe) return;
+                const exists = Array.from(madeSelect.options).some(o => cleanKey(o.value) === cleanKey(ex.maDe));
+                if (!exists) {
+                    const opt = document.createElement('option');
+                    opt.value = ex.maDe;
+                    opt.textContent = 'Mã đề V41: ' + ex.maDe + ' — ' + (Number(ex.count)||0) + ' câu / ' + (Number(ex.minutes)||30) + ' phút';
+                    madeSelect.appendChild(opt);
+                }
+            });
+            if (madeSelect.options.length <= 1) madeSelect.innerHTML = '<option value="">-- Chưa được phân quyền mã đề --</option>';
+        } finally {
+            try { delete window[cb]; } catch(e) { window[cb] = null; }
+        }
+    };
+    const script = document.createElement('script');
+    script.src = API_URL + '?action=listexams&maHS=' + encodeURIComponent(maHS) + '&subject=' + encodeURIComponent(monSelect) + '&callback=' + encodeURIComponent(cb) + '&v=42';
+    script.onerror = function(){ try { delete window[cb]; } catch(e) {} };
+    document.body.appendChild(script);
 };
 
 window.updateTopicList = function() {
@@ -3476,18 +3500,20 @@ window.submitQuiz = function() {
         };
     });
 
-    // 1. Tự động bù tên Môn và Chủ đề nếu làm Đề tổng hợp (tránh bị undefined)
-var submitMon = mon || "Toán"; 
-var submitChuDe = selectedTopicsStr;
+    // 1. Tự động bù Môn/Chủ đề. Với V42 phải lấy metadata của đúng Mã đề.
+var v42Meta = AppState.v42ExamMeta || null;
+var submitMon = (v42Meta && v42Meta.subject) ? v42Meta.subject : (mon || "Toán");
+var submitChuDe = (v42Meta && v42Meta.maDe)
+    ? ((v42Meta.topic || v42Meta.skill || "") + (v42Meta.topic || v42Meta.skill ? " — " : "") + "Mã đề: " + v42Meta.maDe)
+    : selectedTopicsStr;
 
-// Nếu không có tên chủ đề lẻ, tự động đặt tên là "Đề tổng hợp Toán (21 câu)"
 if (!submitChuDe || submitChuDe === "") {
     submitChuDe = "Đề tổng hợp Toán (21 câu)";
 }
 
 // Cập nhật bảng xếp hạng cục bộ ngay lập tức.
 // Không cần tải lại rankings từ Google Sheets sau khi nộp bài.
-addLocalRankingAfterSubmit(maHS, score, submitMon, level || 1, submitChuDe);
+addLocalRankingAfterSubmit(maHS, score, submitMon, (v42Meta && v42Meta.level) ? v42Meta.level : (level || 1), submitChuDe);
 
 // 2. Chỉ cần có Mã học sinh (maHS) là BẮT BUỘC gửi về Google Sheets
 if (maHS) {
@@ -3499,7 +3525,7 @@ if (maHS) {
             maHS: maHS,
             mon: submitMon,
             score: score,
-            level: level || 1,
+            level: (v42Meta && v42Meta.level) ? v42Meta.level : (level || 1),
             chuDe: submitChuDe,
             made: selectedMade || "Đề tổng hợp",
             details: details || [],
@@ -3518,6 +3544,8 @@ if (maHS) {
 } else {
     console.warn("⚠️ Chưa có Mã học sinh (maHS) nên chưa gửi được!");
 }
+
+    AppState.v42ExamActive = false;
 
     let quizScreen = document.getElementById('quiz-screen');
     if (quizScreen) quizScreen.style.display = 'none';
@@ -4526,6 +4554,107 @@ document.addEventListener('click', function(e) {
         return originalFetch.apply(this, args);
     };
 })();
+// ============================================================
+// V42: Làm bài theo mã đề V41 đã tạo.
+// Chỉ kích hoạt với mã dạng ENG5_YYYYMMDDHHMMSS_### / TOAN5_...
+// Luồng MADE cũ trong Questions/BT vẫn giữ nguyên.
+// ============================================================
+function isV42GeneratedExamCode(code) {
+    return /^(?:ENG5|TOAN5)_\d{14}_\d{3}$/i.test(String(code || '').trim());
+}
+
+window.loadV42ExamByInput = function() {
+    const input = document.getElementById('made-code-input');
+    const select = document.getElementById('made-select');
+    const code = input ? input.value.trim() : '';
+    if (!code) return alert('Vui lòng nhập Mã đề.');
+    if (!isV42GeneratedExamCode(code)) return alert('Mã đề V41 không đúng định dạng. Ví dụ: ENG5_20260902160047_126');
+    if (select) {
+        let found = Array.from(select.options).find(o => cleanKey(o.value) === cleanKey(code));
+        if (!found) {
+            const opt = document.createElement('option');
+            opt.value = code;
+            opt.textContent = 'Mã đề V41: ' + code;
+            select.appendChild(opt);
+        }
+        select.value = code;
+        window.handleMadeChange();
+    }
+};
+
+window.startV42Exam = function(maDe) {
+    const code = String(maDe || '').trim();
+    const studentEl = document.getElementById('student-code');
+    const maHS = studentEl ? String(studentEl.value || '').trim() : String(localStorage.getItem('saved_maHS') || '').trim();
+    if (!code) return alert('Vui lòng chọn hoặc nhập Mã đề.');
+    if (!maHS) return alert('Vui lòng chọn Mã học sinh trước khi làm bài.');
+
+    const cb = 'handleV42GetExam_' + Date.now();
+    window[cb] = function(result) {
+        try {
+            if (!result || !result.ok) return alert((result && result.message) || 'Không tải được đề theo Mã đề.');
+            const meta = result.meta || {};
+            const rows = Array.isArray(result.questions) ? result.questions : [];
+            if (!rows.length) return alert('Mã đề không có câu hỏi.');
+
+            const items = rows.map(function(q) {
+                const item = {
+                    ...q,
+                    question: String(q.CauHoi || q['Câu hỏi'] || q.question || '').trim(),
+                    a: String(q.DapAnA || q['Đáp án A'] || q.a || '').trim(),
+                    b: String(q.DapAnB || q['Đáp án B'] || q.b || '').trim(),
+                    c: String(q.DapAnC || q['Đáp án C'] || q.c || '').trim(),
+                    d: String(q.DapAnD || q['Đáp án D'] || q.d || '').trim(),
+                    correct: String(q.DapAnDung || q['Đáp án đúng'] || q.correct || '').trim(),
+                    mon: meta.subject || q.mon || '',
+                    chuDe: q.ChuDe || q['Chủ đề'] || meta.topic || '',
+                    made: code,
+                    level: q.DoKho || q['Độ khó'] || meta.level || '',
+                    skill: q.KyNang || q['Kỹ năng'] || meta.skill || ''
+                };
+                item._correctKeys = getCorrectKeys(item);
+                item._shuffledKeys = shuffleArray(['a','b','c','d'].filter(k => item[k] !== ''));
+                return item;
+            }).filter(x => x.question);
+
+            if (!items.length) return alert('Không có câu hỏi hợp lệ trong Mã đề.');
+            AppState.v42ExamMeta = { maDe: code, minutes: Number(meta.minutes || 30), subject: meta.subject || '' };
+            AppState.v42ExamActive = true;
+            AppState.currentQuizData = items;
+            AppState.correctCount = 0;
+            AppState.wrongCount = 0;
+            AppState.quizSubmitted = false;
+            clearInterval(AppState.timerInterval);
+            AppState.timerInterval = null;
+
+            const startScreen = document.getElementById('start-screen');
+            const quizScreen = document.getElementById('quiz-screen');
+            if (startScreen) startScreen.style.display = 'none';
+            if (quizScreen) quizScreen.style.display = 'block';
+            setQuizActive(true);
+            updateScoreDisplay();
+            window.renderQuiz();
+            window.startTimerTotal(Math.max(1, Number(meta.minutes || 30)) * 60);
+        } finally {
+            try { delete window[cb]; } catch(e) { window[cb] = null; }
+        }
+    };
+    const script = document.createElement('script');
+    script.src = API_URL + '?action=getexam&maDe=' + encodeURIComponent(code) + '&callback=' + encodeURIComponent(cb) + '&v=42';
+    script.onerror = function(){ try { delete window[cb]; } catch(e) {} alert('Không kết nối được máy chủ để tải Mã đề.'); };
+    document.body.appendChild(script);
+};
+
+window._v42OriginalStartQuiz = window.startQuiz;
+window.startQuiz = function() {
+    const toggleMade = document.getElementById('toggle-made');
+    const selectedMade = (toggleMade && toggleMade.checked && document.getElementById('made-select')) ? document.getElementById('made-select').value.trim() : '';
+    if (selectedMade && isV42GeneratedExamCode(selectedMade)) {
+        return window.startV42Exam(selectedMade);
+    }
+    return window._v42OriginalStartQuiz();
+};
+
 // V41.1 FIX: Frontend exam generator bridge + UI logic.
 (function(){
   function bankForSubject(subject){
