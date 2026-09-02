@@ -4567,6 +4567,54 @@ document.addEventListener('click', function(e) {
   window.closeV41ExamGenerator=function(){
     var modal=document.getElementById('v41-exam-modal'); if(modal) modal.style.display='none';
   };
+  function v41Call(action, params){
+    return new Promise(function(resolve,reject){
+      var cb='v41view_'+Date.now()+'_'+Math.floor(Math.random()*100000);
+      var script=document.createElement('script');
+      var timer=setTimeout(function(){cleanup();reject(new Error('Hết thời gian kết nối Apps Script.'));},20000);
+      window[cb]=function(data){cleanup();resolve(data);};
+      function cleanup(){clearTimeout(timer);try{delete window[cb];}catch(e){window[cb]=undefined;}if(script.parentNode)script.parentNode.removeChild(script);}
+      script.onerror=function(){cleanup();reject(new Error('Không kết nối được Apps Script.'));};
+      var qs='?action='+encodeURIComponent(action);
+      Object.keys(params||{}).forEach(function(k){qs+='&'+encodeURIComponent(k)+'='+encodeURIComponent(params[k]==null?'':params[k]);});
+      qs+='&callback='+cb;
+      script.src=API_URL+qs; document.body.appendChild(script);
+    });
+  }
+  function v41AnswerText(q,key){
+    return val(q,[key, key.replace(/^DapAn/,'Đáp án '), key.toLowerCase()]);
+  }
+  window.openV41ExamPreview=function(maDe){
+    maDe=String(maDe||'').trim();
+    if(!maDe){alert('Chưa có mã đề để xem.');return;}
+    var modal=document.getElementById('v41-preview-modal');
+    if(!modal){
+      modal=document.createElement('div'); modal.id='v41-preview-modal';
+      modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;display:none;align-items:center;justify-content:center;padding:15px;box-sizing:border-box;';
+      modal.innerHTML='<div style="background:#fff;width:min(900px,100%);max-height:92vh;overflow:auto;border-radius:12px;padding:18px;box-sizing:border-box"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h2 id="v41-preview-title" style="margin:0;color:#6f42c1">📄 Xem đề V41</h2><button type="button" onclick="window.closeV41ExamPreview()" style="font-size:20px;border:0;background:#eee;border-radius:8px;padding:6px 12px;cursor:pointer">✕</button></div><div id="v41-preview-body" style="margin-top:12px">Đang tải...</div></div>';
+      document.body.appendChild(modal);
+    }
+    modal.style.display='flex';
+    var body=document.getElementById('v41-preview-body'); if(body) body.innerHTML='<p>⏳ Đang đọc đề <b>'+escapeHTML(maDe)+'</b>...</p>';
+    v41Call('getexam',{maDe:maDe}).then(function(data){
+      if(!data||!data.ok) throw new Error((data&&data.message)||'Không đọc được đề.');
+      var meta=data.meta||{}, qs=Array.isArray(data.questions)?data.questions:[];
+      var title=document.getElementById('v41-preview-title');
+      if(title) title.textContent='📄 '+(meta.name||'Xem đề V41');
+      var html='<div style="padding:10px;background:#f6f2ff;border-radius:8px;margin-bottom:12px"><b>Mã đề:</b> '+escapeHTML(meta.maDe||maDe)+' &nbsp; <b>Môn:</b> '+escapeHTML(meta.subject||'')+' &nbsp; <b>Số câu:</b> '+qs.length+' &nbsp; <b>Thời gian:</b> '+escapeHTML(meta.minutes||'')+' phút</div>';
+      if(!qs.length){html+='<div style="padding:12px;border:1px solid #dc3545;border-radius:8px;color:#b00020">Đề không có câu hỏi. Kiểm tra CHI_TIET_DE.</div>';}
+      qs.forEach(function(q,i){
+        var question=val(q,['CauHoi','Câu hỏi','cauHoi','Question','question']);
+        var opts=['A','B','C','D'].map(function(k){return val(q,['DapAn'+k,'Đáp án'+k,'dapAn'+k,k]);});
+        html+='<div style="border:1px solid #ddd;border-radius:8px;padding:12px;margin:10px 0"><div><b>Câu '+(i+1)+'</b> — <span style="color:#555">'+escapeHTML(val(q,['MaCau','Mã câu','maCau','ID']))+'</span></div><div style="margin:8px 0">'+escapeHTML(question)+'</div>';
+        opts.forEach(function(o,j){if(o)html+='<div style="padding:5px 8px">'+String.fromCharCode(65+j)+'. '+escapeHTML(o)+'</div>';});
+        html+='</div>';
+      });
+      html+='<div style="font-size:.9em;color:#666;margin-top:10px">Kiểm tra này chỉ xem nội dung đề đã lưu; đáp án đúng không hiển thị cho người làm bài.</div>';
+      if(body) body.innerHTML=html;
+    }).catch(function(e){if(body)body.innerHTML='<div style="padding:12px;border:1px solid #dc3545;color:#b00020;border-radius:8px">❌ '+escapeHTML(e.message)+'</div>';});
+  };
+  window.closeV41ExamPreview=function(){var m=document.getElementById('v41-preview-modal');if(m)m.style.display='none';};
   window.generateV41Exam=function(){
     var subject=(document.getElementById('v41-subject')||{}).value || 'Tiếng Anh';
     var topic=(document.getElementById('v41-topic')||{}).value || '';
@@ -4615,7 +4663,8 @@ document.addEventListener('click', function(e) {
         }
         setStatus('Đã tạo '+created.length+' mã đề thành công.');
         if(result){
-          result.innerHTML='<div style="padding:10px;border:1px solid #198754;border-radius:8px;background:#f0fff5"><b>✅ Tạo đề thành công</b><br>'+created.map(function(x){return 'Mã đề: <b>'+escapeHTML(x.maDe)+'</b> — '+x.count+' câu — '+x.minutes+' phút';}).join('<br>')+'</div>';
+          result.innerHTML='<div style="padding:10px;border:1px solid #198754;border-radius:8px;background:#f0fff5"><b>✅ Tạo đề thành công</b><br>'+created.map(function(x){return 'Mã đề: <b>'+escapeHTML(x.maDe)+'</b> — '+x.count+' câu — '+x.minutes+' phút <button type="button" class="v41-preview-btn" data-v41-code="'+escapeHTML(x.maDe)+'" style="margin-left:8px;padding:5px 9px;border:0;border-radius:6px;background:#0d6efd;color:#fff;cursor:pointer">Xem đề</button>';}).join('<br>')+'</div>';
+          Array.prototype.forEach.call(result.querySelectorAll('.v41-preview-btn'),function(b){b.addEventListener('click',function(){window.openV41ExamPreview(b.getAttribute('data-v41-code')||'');});});
         }
       }catch(e){ setStatus('Lỗi: '+e.message,false); }
       finally{if(btn)btn.disabled=false;}
