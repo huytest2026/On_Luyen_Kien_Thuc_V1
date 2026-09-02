@@ -1,11 +1,12 @@
 const API_URL = "https://script.google.com/macros/s/AKfycbxByXvzJFoK6N0jToFqXj1pEMBnGkMyoa7J5r7vEScJTr-ZSOfSw8Wdv8pPg5EyBg/exec";
 
 // ============================================================
-// V30 — SINGLE DICTIONARY ENGINE
+// V32 — SINGLE DICTIONARY ENGINE + PROFESSIONAL DUAL-PRONUNCIATION UI
 // - Chỉ script.js sở hữu window.lookupWord
 // - Không dùng V17/V18 wrapper, không dùng V28 patch
 // - Không dùng MutationObserver để chèn từ gốc
 // - Từ gốc được tính trước khi tra và được render trong cùng luồng
+// - V32: hiển thị tách rõ 2 thẻ: TỪ BẠN TRA và TỪ GỐC, mỗi thẻ có IPA + nút nghe riêng
 // ============================================================
 
 let AppState = {
@@ -536,7 +537,7 @@ window.closeDictionaryModal = function() {
 // Memory -> IndexedDB -> localStorage fallback
 // Progressive loading + stale-while-revalidate
 // ==========================================
-const DICT_V11_CACHE_VERSION = 'v30-single-engine-baseform';
+const DICT_V11_CACHE_VERSION = 'v34-hybrid-200k-smart-learning';
 const DICT_V11_DB_NAME = 'EnglishDictionaryCacheV15';
 const DICT_V11_STORE = 'entries';
 const DICT_V11_TTL = 1000 * 60 * 60 * 24 * 30; // 30 ngày
@@ -552,11 +553,11 @@ function dictV11NormalizeWord(value) {
 // Lazy shards + IndexedDB + Memory Cache.
 // Chỉ tải shard cần thiết; sau đó giữ shard trong IndexedDB.
 // ==========================================
-const V16_DICT_DB_NAME = 'EnglishDictionaryOffline50K_V16';
+const V16_DICT_DB_NAME = 'EnglishDictionaryOffline200K_V34';
 const V16_DICT_STORE = 'shards';
-const V16_DICT_VERSION = 1;
-const V16_DICT_PATH = 'dictionary-50k/';
-const V16_DICT_COUNT = 50000;
+const V16_DICT_VERSION = 34;
+const V16_DICT_PATH = 'dictionary-200k/core/';
+const V16_DICT_COUNT = 200000;
 const V16_DICT_MEMORY = new Map();
 const V16_DICT_LOADING = new Map();
 let v16DictDBPromise = null;
@@ -647,20 +648,9 @@ async function getOffline50KEntry(word) {
 }
 
 function v16BackgroundPreload() {
-    if (navigator.connection?.saveData) return;
-    const letters = "abcdefghijklmnopqrstuvwxyz".split("");
-    const run = async () => {
-        for (const letter of letters) {
-            if (!V16_DICT_MEMORY.has(letter)) {
-                await v16LoadShard(letter);
-            }
-        }
-    };
-    if ('requestIdleCallback' in window) {
-        requestIdleCallback(run, { timeout: 2500 });
-    } else {
-        setTimeout(run, 2500);
-    }
+    // V34: 200K is lazy-loaded. Never preload all shards at startup.
+    // Recent words are already cached by the lookup flow and IndexedDB.
+    return;
 }
 
 function buildOffline10KHTML(word, entry) {
@@ -669,12 +659,12 @@ function buildOffline10KHTML(word, entry) {
         <div class="dict-offline-card" style="background:#eef7ff;border:1px solid #b8d8f0;border-radius:10px;padding:14px;margin-bottom:10px;">
             <div class="dict-word-head" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                 <b style="font-size:1.45em;color:#540606;">${escapeHTML(word)}</b>
-                <span style="font-size:.82em;background:#dff1ff;color:#145a86;padding:4px 8px;border-radius:999px;">⚡ OFFLINE 50K</span>
+                <span style="font-size:.82em;background:#dff1ff;color:#145a86;padding:4px 8px;border-radius:999px;">⚡ OFFLINE 200K</span>
                 ${speechButtonHTML(word)}
             </div>
             ${ipa ? `<div style="margin-top:9px;font-size:1.12em;"><b>🔤 IPA:</b> <code style="font-size:1.1em;">${escapeHTML(ipa)}</code></div>` : ''}
             <div style="margin-top:10px;color:#555;font-size:.92em;">
-                📚 Từ này có trong kho offline 50.000 từ. Phiên âm có thể xem và luyện phát âm ngay cả khi không có Internet.
+                📚 Từ này có trong kho offline 200.000 từ. Phiên âm có thể xem và luyện phát âm ngay cả khi không có Internet.
             </div>
             <div id="dict-offline-online-slot" style="margin-top:12px;"></div>
         </div>`;
@@ -840,7 +830,131 @@ function dictV11RememberRecent(word) {
     dictV11ShowRecent();
 }
 
+
+// ==========================================
+// V34 HYBRID SMART DICTIONARY
+// Offline 200K -> Learned local -> Apps Script online -> browser cache.
+// ==========================================
+const DICT_V34_LEARNED_DB = 'EnglishDictionaryLearnedV34';
+const DICT_V34_LEARNED_STORE = 'entries';
+const DICT_V34_BACKEND = (typeof API_URL === 'string' ? API_URL : '');
+let dictV34LearnedDBPromise = null;
+
+function dictV34OpenLearnedDB() {
+    if (dictV34LearnedDBPromise) return dictV34LearnedDBPromise;
+    dictV34LearnedDBPromise = new Promise(resolve => {
+        if (!('indexedDB' in window)) return resolve(null);
+        try {
+            const req = indexedDB.open(DICT_V34_LEARNED_DB, 1);
+            req.onupgradeneeded = () => {
+                const db = req.result;
+                if (!db.objectStoreNames.contains(DICT_V34_LEARNED_STORE)) {
+                    db.createObjectStore(DICT_V34_LEARNED_STORE, { keyPath: 'key' });
+                }
+            };
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => resolve(null);
+        } catch (e) { resolve(null); }
+    });
+    return dictV34LearnedDBPromise;
+}
+async function dictV34LearnedGet(word) {
+    const db = await dictV34OpenLearnedDB();
+    if (!db) return null;
+    const key = dictV11NormalizeWord(word);
+    return new Promise(resolve => {
+        try {
+            const tx = db.transaction(DICT_V34_LEARNED_STORE, 'readonly');
+            const req = tx.objectStore(DICT_V34_LEARNED_STORE).get(key);
+            req.onsuccess = () => resolve(req.result || null);
+            req.onerror = () => resolve(null);
+        } catch (e) { resolve(null); }
+    });
+}
+async function dictV34LearnedSet(word, payload) {
+    const db = await dictV34OpenLearnedDB();
+    if (!db || !payload) return false;
+    const key = dictV11NormalizeWord(word);
+    if (!key) return false;
+    return new Promise(resolve => {
+        try {
+            const tx = db.transaction(DICT_V34_LEARNED_STORE, 'readwrite');
+            tx.objectStore(DICT_V34_LEARNED_STORE).put({ key, payload, savedAt: Date.now() });
+            tx.oncomplete = () => resolve(true);
+            tx.onerror = () => resolve(false);
+            tx.onabort = () => resolve(false);
+        } catch (e) { resolve(false); }
+    });
+}
+function dictV34IsExternalDictionaryUrl(url) {
+    return /api\.dictionaryapi\.dev\/api\/v2\/entries\/en\//i.test(String(url || ''));
+}
+function dictV34IsTranslationUrl(url) {
+    return /api\.mymemory\.translated\.net\/get/i.test(String(url || ''));
+}
+function dictV34WordFromUrl(url) {
+    try {
+        const u = new URL(url, location.href);
+        if (dictV34IsExternalDictionaryUrl(url)) return decodeURIComponent(u.pathname.split('/').pop() || '');
+        if (dictV34IsTranslationUrl(url)) return u.searchParams.get('q') || '';
+    } catch (e) {}
+    return '';
+}
+async function dictV34BackendLookup(word, kind, timeoutMs, externalSignal) {
+    if (!DICT_V34_BACKEND) throw new Error('Chưa cấu hình Apps Script backend');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs || 5000);
+    let removeExternal = null;
+    try {
+        if (externalSignal) {
+            const abortFromParent = () => controller.abort();
+            if (externalSignal.aborted) controller.abort();
+            else {
+                externalSignal.addEventListener('abort', abortFromParent, { once: true });
+                removeExternal = () => externalSignal.removeEventListener('abort', abortFromParent);
+            }
+        }
+        const u = new URL(DICT_V34_BACKEND);
+        u.searchParams.set('action', 'dictionary');
+        u.searchParams.set('word', dictV11NormalizeWord(word));
+        u.searchParams.set('kind', kind || 'full');
+        const res = await fetch(u.toString(), { signal: controller.signal, cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const payload = await res.json();
+        if (!payload || payload.ok === false) throw new Error(payload?.error || 'Không có dữ liệu');
+        return payload;
+    } finally {
+        clearTimeout(timer);
+        if (removeExternal) removeExternal();
+    }
+}
+async function dictV34SmartLookup(word, timeoutMs, externalSignal) {
+    const key = dictV11NormalizeWord(word);
+    const learned = await dictV34LearnedGet(key);
+    if (learned?.payload) return { ...learned.payload, source: 'learned-local' };
+    const payload = await dictV34BackendLookup(key, 'full', timeoutMs, externalSignal);
+    if (payload?.entries || payload?.translation || payload?.ipa) {
+        dictV34LearnedSet(key, payload).catch(() => {});
+    }
+    return payload;
+}
+
 async function dictV11FetchJSON(url, timeoutMs = 4500, externalSignal = null) {
+    const textUrl = String(url || '');
+    // V34: never call third-party dictionary/translation APIs directly from GitHub Pages.
+    if (dictV34IsExternalDictionaryUrl(textUrl)) {
+        const word = dictV34WordFromUrl(textUrl);
+        const payload = await dictV34SmartLookup(word, timeoutMs, externalSignal);
+        return Array.isArray(payload?.entries) ? payload.entries : [];
+    }
+    if (dictV34IsTranslationUrl(textUrl)) {
+        const word = dictV34WordFromUrl(textUrl);
+        const learned = await dictV34LearnedGet(word);
+        let payload = learned?.payload || null;
+        if (!payload || !payload.translation) payload = await dictV34BackendLookup(word, 'translation', timeoutMs, externalSignal);
+        if (payload) dictV34LearnedSet(word, payload).catch(() => {});
+        return { responseData: { translatedText: payload?.translation || '' } };
+    }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let removeExternal = null;
@@ -853,7 +967,7 @@ async function dictV11FetchJSON(url, timeoutMs = 4500, externalSignal = null) {
                 removeExternal = () => externalSignal.removeEventListener('abort', abortFromParent);
             }
         }
-        const res = await fetch(url, { signal: controller.signal, cache: 'force-cache' });
+        const res = await fetch(textUrl, { signal: controller.signal, cache: 'force-cache' });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         return await res.json();
     } finally {
@@ -1295,25 +1409,199 @@ function dictResolveBaseForm(value) {
 
 // V30: Thông tin từ gốc là lớp bắt buộc, được render trực tiếp bởi engine duy nhất.
 // Vì vậy mọi kết quả tra một dạng biến đổi đều phải hiện rõ dạng đã nhập -> từ gốc.
-function dictBuildBaseFormNotice(requestedWord, verbInfo) {
-    if (!verbInfo) return '';
+// V31: HIỂN THỊ SONG SONG PHÁT ÂM CỦA DẠNG ĐANG TRA VÀ TỪ GỐC.
+// Ví dụ: went -> /went/ và go -> /ɡəʊ/.
+const DICT_V31_PRON_CACHE = new Map();
 
-    const base = verbInfo.base || verbInfo.v1 || '';
+function dictV31GetIrregularParadigm(verbInfo) {
+    const base = dictV11NormalizeWord(verbInfo?.base || verbInfo?.v1 || '');
+    if (!base) return null;
+
+    try {
+        if (typeof IRREGULAR_VERBS_DATA !== 'undefined' && Array.isArray(IRREGULAR_VERBS_DATA)) {
+            const found = IRREGULAR_VERBS_DATA.find(item => dictV11NormalizeWord(item?.v1) === base);
+            if (found) {
+                return {
+                    v1: dictV11NormalizeWord(found.v1),
+                    v2: String(found.v2 || '').trim(),
+                    v3: String(found.v3 || '').trim()
+                };
+            }
+        }
+    } catch (e) {}
+
+    return {
+        v1: base,
+        v2: String(verbInfo?.v2 || '').trim(),
+        v3: String(verbInfo?.v3 || '').trim()
+    };
+}
+
+function dictV31ExtractPronunciation(entries, fallbackWord) {
+    const list = Array.isArray(entries) ? entries : [];
+    const phonetics = list.flatMap(e => Array.isArray(e?.phonetics) ? e.phonetics : []);
+    const ipa = list.map(e => e?.phonetic).find(Boolean)
+        || phonetics.map(p => p?.text).find(Boolean)
+        || '';
+    const audio = phonetics.map(p => p?.audio).find(Boolean) || '';
+    return { word: fallbackWord, ipa: String(ipa || '').trim(), audio: String(audio || '').trim() };
+}
+
+async function dictV31GetPronunciationMeta(word) {
+    const key = dictV11NormalizeWord(word);
+    if (!key) return { word:'', ipa:'', audio:'' };
+    if (DICT_V31_PRON_CACHE.has(key)) return DICT_V31_PRON_CACHE.get(key);
+
+    const promise = (async () => {
+        try {
+            const offline = await getOffline50KEntry(key);
+            if (offline?.ipa) {
+                return { word:key, ipa:String(offline.ipa).trim(), audio:String(offline.audio || '').trim() };
+            }
+        } catch (e) {}
+
+        try {
+            const url = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(key)}`;
+            const data = await dictV11FetchJSON(url, 3500);
+            const meta = dictV31ExtractPronunciationMeta(data, key);
+            return meta;
+        } catch (e) {
+            return { word:key, ipa:'', audio:'' };
+        }
+    })();
+
+    DICT_V31_PRON_CACHE.set(key, promise);
+    return promise;
+}
+
+function dictV31ExtractPronunciationMeta(entries, fallbackWord) {
+    return dictV31ExtractPronunciation(entries, fallbackWord);
+}
+
+function dictV32EnsureStyles() {
+    if (document.getElementById('dict-v32-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'dict-v32-styles';
+    style.textContent = `
+      .dict-v32-base-note{margin:0 0 12px;padding:0;background:linear-gradient(180deg,#fffdfa,#fff8e8);border:1px solid #e8c46f;border-radius:16px;overflow:hidden;box-shadow:0 8px 24px rgba(114,75,20,.10)}
+      .dict-v32-note-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;background:rgba(255,255,255,.65);border-bottom:1px solid rgba(232,196,111,.55)}
+      .dict-v32-note-title{font-weight:800;color:#6b3b00;font-size:1rem}.dict-v32-note-sub{color:#777;font-size:.9rem;text-align:right}
+      .dict-v32-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:14px}
+      .dict-v32-form-card{position:relative;border:1px solid #e5d8bd;border-radius:13px;padding:14px;background:#fff;min-width:0}
+      .dict-v32-form-card.requested{border-color:#e9b957;background:linear-gradient(180deg,#fffdf7,#fff7e4)}
+      .dict-v32-form-card.base{border-color:#9dc7a6;background:linear-gradient(180deg,#fbfffb,#eef8ef)}
+      .dict-v32-card-kicker{display:flex;align-items:center;gap:8px;font-size:.82rem;font-weight:800;letter-spacing:.02em;text-transform:uppercase;margin-bottom:8px}
+      .dict-v32-form-card.requested .dict-v32-card-kicker{color:#9a5a00}.dict-v32-form-card.base .dict-v32-card-kicker{color:#2f6b3b}
+      .dict-v32-word-row{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.dict-v32-word{font-size:1.55rem;font-weight:900;line-height:1.15;color:#3f1c1c;word-break:break-word}
+      .dict-v32-tag{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;background:rgba(122,75,0,.10);color:#7a4b00;font-size:.78rem;font-weight:800}
+      .dict-v32-ipa-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px dashed rgba(0,0,0,.12)}
+      .dict-v32-ipa-label{font-size:.82rem;font-weight:800;color:#6b6b6b}.dict-v32-ipa{font-size:1.08rem;color:#164d73;font-weight:700}
+      .dict-v32-listen{border:0;border-radius:9px;padding:7px 10px;cursor:pointer;background:#f3efe5;color:#4b3b20;font-weight:800;font-size:.86rem}
+      .dict-v32-listen:hover{filter:brightness(.98);transform:translateY(-1px)}
+      .dict-v32-relation{margin:0 14px 12px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.7);color:#5b5b5b;font-size:.93rem}
+      .dict-v32-paradigm{margin:0 14px 14px;padding:11px 12px;border-radius:10px;background:#fff;border:1px solid #eadfc9;color:#5b5b5b;font-size:.92rem}
+      .dict-v32-paradigm b{color:#343434}
+      @media(max-width:620px){.dict-v32-form-grid{grid-template-columns:1fr}.dict-v32-note-head{align-items:flex-start;flex-direction:column}.dict-v32-note-sub{text-align:left}.dict-v32-word{font-size:1.35rem}}
+    `;
+    document.head.appendChild(style);
+}
+
+function dictV32AudioButton(word, audio) {
+    const safeWord = escapeHTML(word);
+    return audio
+        ? `<button type="button" class="dict-v32-listen" onclick="window.playDictionaryAudio('${escapeHTML(audio)}')">🔊 Nghe</button>`
+        : `<button type="button" class="dict-v32-listen" onclick="speakWord('${safeWord}')">🔊 Nghe</button>`;
+}
+
+function dictV32PronunciationCard(id, variant, kicker, word, typeLabel, ipa, audio) {
+    const safeId = escapeHTML(id);
+    const safeWord = escapeHTML(word);
+    const safeIpa = escapeHTML(ipa || 'Đang lấy phiên âm…');
+    return `<section class="dict-v32-form-card ${variant}" id="${safeId}">
+        <div class="dict-v32-card-kicker">${kicker}</div>
+        <div class="dict-v32-word-row"><span class="dict-v32-word">${safeWord}</span>${typeLabel ? `<span class="dict-v32-tag">${escapeHTML(typeLabel)}</span>` : ''}</div>
+        <div class="dict-v32-ipa-row">
+            <span class="dict-v32-ipa-label">🔤 IPA</span>
+            <code class="dict-v32-ipa">${safeIpa}</code>
+            ${dictV32AudioButton(word, audio)}
+        </div>
+    </section>`;
+}
+
+function dictV31BuildBaseFormNotice(requestedWord, verbInfo) {
+    if (!verbInfo) return '';
+    dictV32EnsureStyles();
+
+    const requested = dictV11NormalizeWord(requestedWord);
+    const base = dictV11NormalizeWord(verbInfo.base || verbInfo.v1 || '');
     const type = verbInfo.matchedType || 'dạng biến đổi';
     const relation = verbInfo.resolverType === 'irregular'
-        ? `${escapeHTML(requestedWord)} là dạng ${escapeHTML(type)} của động từ ${escapeHTML(base)}.`
-        : `${escapeHTML(requestedWord)} là một dạng biến đổi của ${escapeHTML(base)}.`;
-
+        ? `${escapeHTML(requested)} là dạng ${escapeHTML(type)} của động từ ${escapeHTML(base)}.`
+        : `${escapeHTML(requested)} là một dạng biến đổi của ${escapeHTML(base)}.`;
     const paradigm = verbInfo.resolverType === 'irregular'
-        ? `<div style="margin-top:6px;color:#555;font-size:.94em;">V1: <b>${escapeHTML(verbInfo.v1 || base)}</b> &nbsp;•&nbsp; V2: <b>${escapeHTML(verbInfo.v2 || '')}</b> &nbsp;•&nbsp; V3: <b>${escapeHTML(verbInfo.v3 || '')}</b></div>`
-        : `<div style="margin-top:6px;color:#666;font-size:.92em;">${escapeHTML(verbInfo.ruleLabel || 'Đã nhận diện dạng biến đổi')}</div>`;
+        ? dictV31GetIrregularParadigm(verbInfo)
+        : null;
+    const paradigmHtml = paradigm
+        ? `<div class="dict-v32-paradigm">🔗 <b>Dạng động từ:</b> V1: <b>${escapeHTML(paradigm.v1 || base)}</b> &nbsp;•&nbsp; V2: <b>${escapeHTML(paradigm.v2 || '')}</b> &nbsp;•&nbsp; V3: <b>${escapeHTML(paradigm.v3 || '')}</b></div>`
+        : `<div class="dict-v32-paradigm">🔗 ${escapeHTML(verbInfo.ruleLabel || 'Đã nhận diện dạng biến đổi')}</div>`;
 
-    return `<div class="dict-base-form-note" data-requested-word="${escapeHTML(requestedWord)}" data-base-word="${escapeHTML(base)}" style="margin:0 0 10px;padding:12px 14px;background:#fff7df;border:1px solid #f0c36d;border-radius:9px;line-height:1.55;box-shadow:0 1px 4px rgba(0,0,0,.04);">
-        <div style="font-size:1.02em;">🔄 <b>Dạng bạn tra:</b> <span style="color:#7a4b00;font-weight:700;">${escapeHTML(requestedWord)}</span> <span style="color:#777;">(${escapeHTML(type)})</span></div>
-        <div style="margin-top:4px;font-size:1.08em;"><span style="color:#2f5f2f;font-weight:700;">📌 Từ gốc (V1): ${escapeHTML(base)}</span></div>
-        <div style="margin-top:4px;color:#555;">${relation}</div>
-        ${paradigm}
+    const requestedId = `dict-v32-requested-pron-${requested}`;
+    const baseId = `dict-v32-base-pron-${base}`;
+
+    return `<div class="dict-base-form-note dict-v32-base-note" data-requested-word="${escapeHTML(requested)}" data-base-word="${escapeHTML(base)}">
+        <div class="dict-v32-note-head">
+            <div class="dict-v32-note-title">🧭 Nhận diện dạng từ</div>
+            <div class="dict-v32-note-sub">Hiển thị riêng từ bạn tra và từ gốc để dễ học</div>
+        </div>
+        <div class="dict-v32-form-grid">
+            ${dictV32PronunciationCard(requestedId, 'requested', '🔎 Từ bạn đang tra', requested, type, 'Đang lấy phiên âm…', '')}
+            ${dictV32PronunciationCard(baseId, 'base', '📌 Từ gốc (V1)', base, 'Base form', 'Đang lấy phiên âm…', '')}
+        </div>
+        <div class="dict-v32-relation">${relation}</div>
+        ${paradigmHtml}
     </div>`;
+}
+
+function dictV31UpdatePronunciationRow(row, meta, word) {
+    if (!row) return;
+    const ipaEl = row.querySelector('.dict-v32-ipa');
+    if (ipaEl) ipaEl.textContent = meta?.ipa || 'Chưa có dữ liệu IPA';
+
+    const button = row.querySelector('.dict-v32-listen');
+    if (button) {
+        if (meta?.audio) {
+            button.setAttribute('onclick', `window.playDictionaryAudio('${escapeHTML(meta.audio)}')`);
+        } else {
+            button.setAttribute('onclick', `speakWord('${escapeHTML(word)}')`);
+        }
+    }
+}
+
+function dictV31EnhanceBaseFormPronunciations(resultBox, requestedWord, verbInfo, requestId = AppState.dictionaryRequestId) {
+    if (!resultBox || !verbInfo) return;
+    const requested = dictV11NormalizeWord(requestedWord);
+    const base = dictV11NormalizeWord(verbInfo.base || verbInfo.v1 || '');
+    if (!requested || !base) return;
+
+    const requestedSelector = `#dict-v32-requested-pron-${requested}`;
+    const baseSelector = `#dict-v32-base-pron-${base}`;
+
+    dictV31GetPronunciationMeta(requested).then(meta => {
+        if (!dictV11IsCurrent(requestId)) return;
+        const row = resultBox.querySelector(requestedSelector);
+        dictV31UpdatePronunciationRow(row, meta, requested);
+    }).catch(() => {});
+
+    dictV31GetPronunciationMeta(base).then(meta => {
+        if (!dictV11IsCurrent(requestId)) return;
+        const row = resultBox.querySelector(baseSelector);
+        dictV31UpdatePronunciationRow(row, meta, base);
+    }).catch(() => {});
+}
+
+// Giữ tên cũ để các đoạn V30 nội bộ không bị ảnh hưởng nếu còn gọi trực tiếp.
+function dictBuildBaseFormNotice(requestedWord, verbInfo) {
+    return dictV31BuildBaseFormNotice(requestedWord, verbInfo);
 }
 
 // V30: Luôn đặt thông tin từ gốc ở đầu kết quả, kể cả HTML lấy từ cache cũ hoặc được bổ sung bất đồng bộ.
@@ -1358,15 +1646,17 @@ window.lookupWord = async function(requestedWord = '') {
     // nhưng vẫn giữ nguyên dạng học sinh vừa nhập ở ô tìm kiếm.
     const verbInfo = dictResolveBaseForm(requested);
     const word = verbInfo ? dictV11NormalizeWord(verbInfo.base || verbInfo.v1) : requested;
-    const baseFormNotice = dictBuildBaseFormNotice(requested, verbInfo);
-    const showResult = (html) => {
-        dictV27ApplyBaseFormNotice(resultBox, baseFormNotice, html);
-    };
+    const baseFormNotice = dictV31BuildBaseFormNotice(requested, verbInfo);
 
     input.value = requested;
     dictV11RememberRecent(requested);
 
     const requestId = ++AppState.dictionaryRequestId;
+    const showResult = (html) => {
+        dictV27ApplyBaseFormNotice(resultBox, baseFormNotice, html);
+        // V32: sau khi render, cập nhật riêng IPA/audio của từ đang tra và từ gốc.
+        if (verbInfo) dictV31EnhanceBaseFormPronunciations(resultBox, requested, verbInfo, requestId);
+    };
     if (AppState.dictionaryAbortController) {
         try { AppState.dictionaryAbortController.abort(); } catch(e) {}
     }
@@ -1379,7 +1669,7 @@ window.lookupWord = async function(requestedWord = '') {
         showResult(buildOffline10KHTML(word, offlineEntry));
         const offlineMeta = document.createElement('div');
         offlineMeta.className = 'dict-v11-meta';
-        offlineMeta.innerHTML = `<span class="cache">⚡ Offline 50K · ${window.OFFLINE_DICTIONARY_50K_COUNT || 50000} từ</span>`;
+        offlineMeta.innerHTML = `<span class="cache">⚡ Offline 200K · ${window.OFFLINE_DICTIONARY_50K_COUNT || 50000} từ</span>`;
         resultBox.prepend(offlineMeta);
 
         try {
@@ -1393,7 +1683,7 @@ window.lookupWord = async function(requestedWord = '') {
                 showResult(richHtml);
                 const meta = document.createElement('div');
                 meta.className = 'dict-v11-meta';
-                meta.innerHTML = `<span class="cache">⚡ Offline 50K + Cache ${cachedRich.source === 'indexeddb' ? 'IndexedDB' : 'trình duyệt'}</span>`;
+                meta.innerHTML = `<span class="cache">⚡ Offline 200K + Cache ${cachedRich.source === 'indexeddb' ? 'IndexedDB' : 'trình duyệt'}</span>`;
                 resultBox.prepend(meta);
             }
         } catch (e) {}
@@ -1526,16 +1816,14 @@ window.restoreUserSelections = function() {
     if (!activeMon) return;
 
     const maHS = document.getElementById('student-code') ? document.getElementById('student-code').value.trim() : '';
-    const savedTopics = localStorage.getItem('saved_topics_' + maHS + '_' + activeMon);
-    if (savedTopics) {
-        try {
-            let topicsArray = JSON.parse(savedTopics);
-            setTimeout(() => {
-                document.querySelectorAll('input[name="topic"]').forEach(cb => {
-                    cb.checked = topicsArray.includes(cb.value);
-                });
-            }, 200);
-        } catch(e) {}
+    // V36.9: ưu tiên đúng chủ đề của bài làm hoàn thành gần nhất.
+    const topicsArray = getLatestCompletedTopics(maHS, activeMon);
+    if (topicsArray.length > 0) {
+        setTimeout(() => {
+            document.querySelectorAll('input[name="topic"]').forEach(cb => {
+                cb.checked = topicsArray.some(topic => normalizePermissionValue(topic) === normalizePermissionValue(cb.value));
+            });
+        }, 200);
     }
 };
 
@@ -1862,9 +2150,9 @@ window.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    if (savedMa) {
-        window.loadData();
-    }
+    // V36.9: luôn tải dữ liệu phân quyền để tạo danh sách thí sinh dạng sổ xuống.
+    // Nếu đã có học sinh trước đó, updateStudentList sẽ tự chọn lại học sinh đó.
+    window.loadData();
 });
 
 window.toggleDarkMode = function() {
@@ -1996,6 +2284,124 @@ function getAllowedSubjectsForStudent(maHS) {
 
 // MADE MODE: dùng bảng MadePermissions độc lập với UserPermissions.
 // Chỉ hiển thị các Mã đề đã cấp quyền cho học sinh hiện tại theo đúng Môn.
+
+// V36.9 - Danh sách thí sinh lấy trực tiếp từ các sheet phân quyền.
+// Không cần nhập tay Mã học sinh. Vẫn giữ nguyên id="student-code" để toàn bộ
+// các chức năng cũ tiếp tục dùng document.getElementById('student-code').value.
+function getPermissionStudentList() {
+    const students = [];
+    const addStudents = raw => {
+        String(raw == null ? '' : raw)
+            .split(/[,;\n]+/)
+            .map(x => x.trim())
+            .filter(Boolean)
+            .forEach(student => {
+                if (!students.some(x => normalizePermissionValue(x) === normalizePermissionValue(student))) {
+                    students.push(student);
+                }
+            });
+    };
+
+    (Array.isArray(AppState.userPermissions) ? AppState.userPermissions : []).forEach(p => addStudents(p.maHS));
+    (Array.isArray(AppState.madePermissions) ? AppState.madePermissions : []).forEach(p => addStudents(p.maHS));
+
+    return students;
+}
+
+window.updateStudentList = function(preferredStudent = '') {
+    const studentSelect = document.getElementById('student-code');
+    if (!studentSelect) return '';
+
+    const students = getPermissionStudentList();
+    const oldValue = String(preferredStudent || studentSelect.value || localStorage.getItem('saved_maHS') || '').trim();
+
+    studentSelect.innerHTML = '<option value="">-- Chọn học sinh --</option>' +
+        students.map(student => '<option value="' + escapeHTML(student) + '">' + escapeHTML(student) + '</option>').join('');
+
+    let selected = students.find(x => normalizePermissionValue(x) === normalizePermissionValue(oldValue)) || '';
+    if (!selected && students.length > 0) selected = students[0];
+
+    studentSelect.value = selected;
+    if (selected) localStorage.setItem('saved_maHS', selected);
+
+    return selected;
+};
+
+window.handleStudentChange = function() {
+    const studentSelect = document.getElementById('student-code');
+    if (!studentSelect) return;
+
+    const maHS = studentSelect.value.trim();
+    if (!maHS) {
+        localStorage.removeItem('saved_maHS');
+        localStorage.removeItem('saved_mon');
+        return;
+    }
+
+    const oldMa = localStorage.getItem('saved_maHS') || '';
+    localStorage.setItem('saved_maHS', maHS);
+    if (oldMa && normalizePermissionValue(oldMa) !== normalizePermissionValue(maHS)) {
+        localStorage.removeItem('saved_mon');
+    }
+
+    // Dữ liệu Questions + UserPermissions + MadePermissions đã tải một lần
+    // nên đổi học sinh chỉ cần dựng lại giao diện, không tải lại toàn bộ dữ liệu.
+    if (AppState.dataLoaded && AppState.allQuizData.length > 0) {
+        try {
+            window.initInterface();
+            window.restoreUserSelections();
+        } catch (e) {
+            console.warn('Không thể đổi học sinh từ dữ liệu RAM:', e);
+        }
+    }
+};
+
+// V36.9 - Ghi nhớ chủ đề của bài làm hoàn thành gần nhất.
+function saveLastCompletedTopics(maHS, mon, topics) {
+    const list = Array.isArray(topics) ? topics.map(x => String(x).trim()).filter(Boolean) : [];
+    if (!maHS || !mon || list.length === 0) return;
+    try {
+        const key = 'last_completed_topics_' + maHS + '_' + mon;
+        localStorage.setItem(key, JSON.stringify(list));
+        // Đồng bộ với bộ nhớ lựa chọn cũ để không làm mất tương thích V21.
+        localStorage.setItem('saved_topics_' + maHS + '_' + mon, JSON.stringify(list));
+    } catch (e) {}
+}
+
+function getLatestCompletedTopics(maHS, mon) {
+    if (!maHS || !mon) return [];
+
+    try {
+        const localKey = 'last_completed_topics_' + maHS + '_' + mon;
+        const localValue = JSON.parse(localStorage.getItem(localKey) || '[]');
+        if (Array.isArray(localValue) && localValue.length > 0) return localValue;
+    } catch (e) {}
+
+    // Fallback: lấy Chủ đề từ bài làm gần nhất đã có trong Rankings.
+    try {
+        const targetStudent = normalizePermissionValue(maHS);
+        const targetMon = cleanKey(mon);
+        const rows = (Array.isArray(AppState.rankings) ? AppState.rankings : [])
+            .filter(r => normalizePermissionValue(r.name) === targetStudent && cleanKey(r.subject) === targetMon && String(r.chuDe || '').trim());
+
+        if (rows.length > 0) {
+            rows.sort((a, b) => parseCustomDate(b.date) - parseCustomDate(a.date));
+            const latest = String(rows[0].chuDe || '').trim();
+            if (latest && !/^đề tổng hợp/i.test(latest) && !/^de tong hop/i.test(latest)) {
+                return latest.split(/\s*,\s*/).map(x => x.trim()).filter(Boolean);
+            }
+        }
+    } catch (e) {}
+
+    // Cuối cùng mới dùng lựa chọn cũ (tương thích dữ liệu V21/V36.8).
+    try {
+        const saved = JSON.parse(localStorage.getItem('saved_topics_' + maHS + '_' + mon) || '[]');
+        return Array.isArray(saved) ? saved : [];
+    } catch (e) {
+        return [];
+    }
+}
+
 window.updateMadeList = function() {
     const monSelect = document.getElementById('subject-select')
         ? document.getElementById('subject-select').value.trim()
@@ -2095,8 +2501,10 @@ function getDefaultSubjectForStudent(allowedSubjects) {
 }
 
 window.initInterface = function() {
+    const preferredStudent = localStorage.getItem('saved_maHS') || '';
+    const selectedStudent = window.updateStudentList ? window.updateStudentList(preferredStudent) : preferredStudent;
     const subjectSelect = document.getElementById('subject-select');
-    const maHS = document.getElementById('student-code') ? document.getElementById('student-code').value.trim() : '';
+    const maHS = selectedStudent || (document.getElementById('student-code') ? document.getElementById('student-code').value.trim() : '');
 
     if (subjectSelect) {
         console.log('🔐 V21 khởi tạo phân quyền độc lập:', {
@@ -2130,19 +2538,24 @@ window.initInterface = function() {
 
 window.loadData = function(forceRefresh = false) {
     if (AppState.dataLoading) return;
-    const maHS = document.getElementById('student-code').value.trim();
-    if (!maHS) return alert("Vui lòng nhập mã học sinh!");
+    const studentSelect = document.getElementById('student-code');
+    const maHS = studentSelect ? studentSelect.value.trim() : '';
 
-    const oldMa = localStorage.getItem('saved_maHS');
-    if (oldMa !== maHS) {
-        localStorage.removeItem('saved_mon');
+    const oldMa = localStorage.getItem('saved_maHS') || '';
+    if (maHS) {
+        if (oldMa && normalizePermissionValue(oldMa) !== normalizePermissionValue(maHS)) {
+            localStorage.removeItem('saved_mon');
+        }
+        localStorage.setItem('saved_maHS', maHS);
     }
-    localStorage.setItem('saved_maHS', maHS);
     clearLegacyPermissionCaches();
 
-    // 1) Nếu dữ liệu của đúng mã học sinh đã có trong RAM -> dùng ngay.
-    if (!forceRefresh && AppState.dataLoaded && AppState.loadedForMaHS === maHS && AppState.allQuizData.length > 0) {
-        console.log('⚡ Load Once: sử dụng dữ liệu đang có trong RAM, không tải lại.');
+    // V36.9: dữ liệu Questions + toàn bộ bảng phân quyền được tải một lần.
+    // Vì danh sách thí sinh cũng lấy từ sheet phân quyền nên lần đầu có thể tải
+    // mà chưa cần chọn học sinh. Khi đã có dữ liệu RAM, đổi học sinh không tải lại.
+    if (!forceRefresh && AppState.dataLoaded && AppState.allQuizData.length > 0) {
+        console.log('⚡ Load Once: sử dụng dữ liệu đang có trong RAM.');
+        if (window.updateStudentList) window.updateStudentList(maHS || oldMa);
         window.initInterface();
         window.restoreUserSelections();
         return;
@@ -2222,6 +2635,11 @@ window.handleQuizData = function(data, fromSessionCache = false) {
             topicPermissions: AppState.userPermissions.length,
             madePermissions: AppState.madePermissions.length
         });
+
+        // V36.9: lấy toàn bộ Mã học sinh từ sheet phân quyền để tạo dropdown.
+        if (typeof window.updateStudentList === 'function') {
+            window.updateStudentList(document.getElementById('student-code')?.value || localStorage.getItem('saved_maHS') || '');
+        }
 
         AppState.rankings = [];
 
@@ -2465,7 +2883,7 @@ function getCorrectKeys(item) {
     return [...new Set(keys)];
 }
 
-// V36.11 FIX: HTML gọi startQuizWithToolCheck(), bảo đảm hàm cầu nối tồn tại trong script.js.
+// V36.11 FIX: HTML gọi startQuizWithToolCheck().
 window.startQuizWithToolCheck = function() {
     if (typeof window.startQuiz !== 'function') {
         alert('Không thể khởi động bài làm vì hàm startQuiz chưa được tải.');
@@ -2505,7 +2923,14 @@ window.startQuiz = function() {
     const mon = selectedSubjectRaw;
     if (!mon) return alert("Vui lòng chọn môn học trước khi bắt đầu!");
 
-    const maHS = document.getElementById('student-code') ? document.getElementById('student-code').value.trim() : localStorage.getItem('saved_maHS');
+    const studentEl = document.getElementById('student-code');
+    let maHS = studentEl ? String(studentEl.value || '').trim() : '';
+    // V36.11: dự phòng khi giao diện đang hiển thị tên học sinh nhưng value của option bị rỗng.
+    if (!maHS && studentEl && studentEl.options && studentEl.selectedIndex >= 0) {
+        const selectedText = String(studentEl.options[studentEl.selectedIndex].text || '').trim();
+        if (selectedText && !/^--\s*chọn học sinh\s*--$/i.test(selectedText)) maHS = selectedText;
+    }
+    if (!maHS) maHS = String(localStorage.getItem('saved_maHS') || '').trim();
     
     const toggleMade = document.getElementById('toggle-made');
     const selectedMade = (toggleMade && toggleMade.checked && document.getElementById('made-select')) ? document.getElementById('made-select').value.trim() : '';
@@ -2988,6 +3413,12 @@ window.submitQuiz = function() {
 
     const toggleMade = document.getElementById('toggle-made');
     let selectedMade = (toggleMade && toggleMade.checked && document.getElementById('made-select')) ? document.getElementById('made-select').value.trim() : '';
+
+    // V36.9: ghi nhớ đúng chủ đề của bài vừa nộp để lần làm tiếp theo khôi phục.
+    if (!selectedMade) {
+        const completedTopics = Array.from(document.querySelectorAll('input[name="topic"]:checked')).map(cb => cb.value);
+        saveLastCompletedTopics(maHS, mon, completedTopics);
+    }
 
     let totalQuestions = AppState.currentQuizData.length;
     let score = Math.round((AppState.correctCount / totalQuestions) * 10 * 10) / 10;
