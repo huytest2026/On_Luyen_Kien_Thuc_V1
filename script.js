@@ -1837,16 +1837,18 @@ window.restoreUserSelections = function() {
 window.handleMadeChange = function() {
     const madeSelect = document.getElementById('made-select');
     const previewEl = document.getElementById('made-passage-preview');
+    const editBtn = document.getElementById('btn-edit-v41-exam');
     if (!madeSelect || !previewEl) return;
-    
+
     const selectedMade = madeSelect.value.trim();
+    if (editBtn) editBtn.style.display = isV42GeneratedExamCode(selectedMade) ? 'inline-block' : 'none';
     if (!selectedMade) {
         previewEl.innerHTML = '';
         return;
     }
 
     if (isV42GeneratedExamCode(selectedMade)) {
-        previewEl.innerHTML = '<div style="background:#e8f5e9;border:1px solid #198754;padding:12px;border-radius:8px;margin-top:6px;"><b style="color:#198754;">🎯 Đề V41:</b> đang sẵn sàng tải theo Mã đề <b>' + escapeHTML(selectedMade) + '</b>. Bấm <b>Bắt Đầu Làm Bài</b> để làm đúng đề này.</div>';
+        previewEl.innerHTML = '<div style="background:#e8f5e9;border:1px solid #198754;padding:12px;border-radius:8px;margin-top:6px;"><b style="color:#198754;">🎯 Đề V41:</b> <b>' + escapeHTML(selectedMade) + '</b>. Bạn có thể xem hoặc chỉnh sửa cấu hình đề trước khi làm bài.</div>';
         return;
     }
 
@@ -4313,6 +4315,88 @@ window.startQuiz = function() {
     return window._v42OriginalStartQuiz();
 };
 
+// ============================================================
+// V42.3: Chỉnh sửa mã đề V41 đã tạo.
+// Giữ nguyên MaDe; thay đổi cấu hình + sinh lại danh sách câu hỏi.
+// Nếu mã đề đã có lượt làm, backend sẽ khóa chỉnh sửa nội dung.
+// ============================================================
+(function(){
+  function v42EditBankForSubject(subject){
+    return cleanKey(subject) === cleanKey('Toán') ? (AppState.mathQuestionBank || []) : (AppState.englishQuestionBank || []);
+  }
+  function v42EditVal(q, keys){
+    for(var i=0;i<keys.length;i++){ var v=q && q[keys[i]]; if(v!==undefined && v!==null && String(v).trim()!=='') return String(v).trim(); }
+    return '';
+  }
+  function v42EditCall(action, params){
+    return new Promise(function(resolve,reject){
+      var cb='v423_'+Date.now()+'_'+Math.floor(Math.random()*100000), sc=document.createElement('script');
+      var timer=setTimeout(function(){cleanup();reject(new Error('Hết thời gian kết nối Apps Script.'));},20000);
+      window[cb]=function(data){cleanup();resolve(data);};
+      function cleanup(){clearTimeout(timer);try{delete window[cb];}catch(e){window[cb]=undefined;}if(sc.parentNode)sc.parentNode.removeChild(sc);}
+      sc.onerror=function(){cleanup();reject(new Error('Không kết nối được Apps Script.'));};
+      var qs='?action='+encodeURIComponent(action);
+      Object.keys(params||{}).forEach(function(k){qs+='&'+encodeURIComponent(k)+'='+encodeURIComponent(params[k]==null?'':params[k]);});
+      qs+='&callback='+cb;
+      sc.src=API_URL+qs; document.body.appendChild(sc);
+    });
+  }
+  function ensureEditModal(){
+    var modal=document.getElementById('v42-edit-exam-modal');
+    if(modal) return modal;
+    modal=document.createElement('div'); modal.id='v42-edit-exam-modal';
+    modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:100000;display:none;align-items:center;justify-content:center;padding:15px;box-sizing:border-box;';
+    modal.innerHTML='<div style="width:min(760px,100%);max-height:92vh;overflow:auto;background:#fff;border-radius:14px;padding:20px;box-sizing:border-box"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h2 style="margin:0;color:#fd7e14">✏️ Chỉnh sửa mã đề V41</h2><button type="button" onclick="window.closeV42EditExam()" style="font-size:20px;border:0;background:#eee;border-radius:8px;padding:6px 12px;cursor:pointer">✕</button></div><div id="v42-edit-body" style="margin-top:12px">Đang tải...</div></div>';
+    document.body.appendChild(modal); return modal;
+  }
+  window.closeV42EditExam=function(){var m=document.getElementById('v42-edit-exam-modal');if(m)m.style.display='none';};
+  window.openV42EditExam=function(){
+    var sel=document.getElementById('made-select'), code=sel?String(sel.value||'').trim():'';
+    if(!isV42GeneratedExamCode(code)){alert('Vui lòng chọn một mã đề V41 trước.');return;}
+    var modal=ensureEditModal(); modal.style.display='flex';
+    var body=document.getElementById('v42-edit-body'); if(body)body.innerHTML='<p>⏳ Đang tải cấu hình mã đề <b>'+escapeHTML(code)+'</b>...</p>';
+    v42EditCall('getexam',{maDe:code}).then(function(data){
+      if(!data||!data.ok)throw new Error((data&&data.message)||'Không đọc được mã đề.');
+      var meta=data.meta||{}, bank=v42EditBankForSubject(meta.subject||''), qs=Array.isArray(data.questions)?data.questions:[];
+      var topic=v42EditVal(meta,['topic']), level=v42EditVal(meta,['level']), skill=v42EditVal(meta,['skill']);
+      var topics=Array.from(new Set(bank.map(function(q){return v42EditVal(q,['ChuDe','Chủ đề','chuDe']);}).filter(Boolean)));
+      var levels=Array.from(new Set(bank.map(function(q){return v42EditVal(q,['DoKho','Độ khó','doKho']);}).filter(Boolean)));
+      var skills=Array.from(new Set(bank.map(function(q){return v42EditVal(q,['KyNang','Kỹ năng','kyNang']);}).filter(Boolean)));
+      var html='<div style="padding:10px;background:#fff8ef;border:1px solid #fd7e14;border-radius:8px;margin-bottom:12px"><b>Mã đề:</b> '+escapeHTML(code)+'<br><span style="color:#666">Chỉ cấu hình và danh sách câu hỏi thay đổi; mã đề vẫn giữ nguyên.</span></div>';
+      html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px">';
+      html+='<label>Môn<select id="v423-subject" disabled style="width:100%;padding:10px;background:#eee"><option value="Tiếng Anh">Tiếng Anh</option><option value="Toán">Toán</option></select></label>';
+      html+='<label>Chủ đề<select id="v423-topic" style="width:100%;padding:10px"><option value="">-- Tất cả --</option>'+topics.map(function(x){return '<option value="'+escapeHTML(x)+'">'+escapeHTML(x)+'</option>';}).join('')+'</select></label>';
+      html+='<label>Độ khó<select id="v423-level" style="width:100%;padding:10px"><option value="">-- Tất cả --</option>'+levels.map(function(x){return '<option value="'+escapeHTML(x)+'">'+escapeHTML(x)+'</option>';}).join('')+'</select></label>';
+      html+='<label id="v423-skill-wrap">Kỹ năng<select id="v423-skill" style="width:100%;padding:10px"><option value="">-- Tất cả --</option>'+skills.map(function(x){return '<option value="'+escapeHTML(x)+'">'+escapeHTML(x)+'</option>';}).join('')+'</select></label>';
+      html+='<label>Số câu<input id="v423-count" type="number" min="1" max="100" value="'+Math.max(1,Number(meta.count||qs.length||10))+'" style="width:100%;padding:10px;box-sizing:border-box"></label>';
+      html+='<label>Thời gian (phút)<input id="v423-minutes" type="number" min="1" max="180" value="'+Math.max(1,Number(meta.minutes||30))+'" style="width:100%;padding:10px;box-sizing:border-box"></label>';
+      html+='</div><input id="v423-name" value="'+escapeHTML(meta.name||'')+'" placeholder="Tên đề" style="width:100%;padding:10px;margin-top:10px;box-sizing:border-box">';
+      html+='<div id="v423-status" style="margin-top:10px;padding:10px;background:#f5f5f5;border-radius:8px">Sẵn sàng chỉnh sửa.</div>';
+      html+='<button type="button" id="v423-save" style="width:100%;padding:13px;margin-top:10px;background:#fd7e14;color:#fff;border:0;border-radius:8px;font-weight:bold">💾 Lưu thay đổi</button>';
+      html+='<div id="v423-result" style="margin-top:10px"></div>';
+      if(body)body.innerHTML=html;
+      var ss=document.getElementById('v423-subject'), st=document.getElementById('v423-topic'), sl=document.getElementById('v423-level'), sk=document.getElementById('v423-skill');
+      if(ss)ss.value=meta.subject||'Tiếng Anh'; if(st)st.value=topic; if(sl)sl.value=level; if(sk)sk.value=skill;
+      function refresh(){
+        var subject=ss.value||'Tiếng Anh', b=v42EditBankForSubject(subject);
+        function setSel(el, values, current){if(!el)return;el.innerHTML='<option value="">-- Tất cả --</option>'+Array.from(new Set(values.filter(Boolean))).map(function(x){return '<option value="'+escapeHTML(x)+'">'+escapeHTML(x)+'</option>';}).join('');if(current&&Array.from(el.options).some(function(o){return cleanKey(o.value)===cleanKey(current);}))el.value=current;}
+        setSel(st,b.map(function(q){return v42EditVal(q,['ChuDe','Chủ đề','chuDe']);}),topic); setSel(sl,b.map(function(q){return v42EditVal(q,['DoKho','Độ khó','doKho']);}),level); setSel(sk,b.map(function(q){return v42EditVal(q,['KyNang','Kỹ năng','kyNang']);}),skill);
+        var wrap=document.getElementById('v423-skill-wrap');if(wrap)wrap.style.display=cleanKey(subject)===cleanKey('Tiếng Anh')?'block':'none';
+      }
+      if(ss)ss.onchange=function(){refresh();}; refresh();
+      var save=document.getElementById('v423-save');
+      if(save)save.onclick=function(){
+        var subject=ss.value||'Tiếng Anh', topic2=st.value||'', level2=sl.value||'', skill2=sk.value||'', count=Math.max(1,Math.min(100,parseInt(document.getElementById('v423-count').value,10)||10)), minutes=Math.max(1,Math.min(180,parseInt(document.getElementById('v423-minutes').value,10)||30)), name2=(document.getElementById('v423-name').value||'').trim(), b=v42EditBankForSubject(subject);
+        var filtered=b.filter(function(q){var qt=v42EditVal(q,['ChuDe','Chủ đề','chuDe']),ql=v42EditVal(q,['DoKho','Độ khó','doKho']),qk=v42EditVal(q,['KyNang','Kỹ năng','kyNang']),qs2=v42EditVal(q,['TrangThai','Trạng thái','trangThai']);if(qs2&&cleanKey(qs2)!==cleanKey('Hoạt động'))return false;return(!topic2||cleanKey(qt)===cleanKey(topic2))&&(!level2||cleanKey(ql)===cleanKey(level2))&&(!skill2||cleanKey(qk)===cleanKey(skill2));});
+        if(filtered.length<count){document.getElementById('v423-status').textContent='❌ Không đủ câu phù hợp: cần '+count+', hiện có '+filtered.length+'.';return;}
+        var ids=shuffleArray(filtered).slice(0,count).map(function(q){return v42EditVal(q,['MaCau','Mã câu','maCau','ID']);}).filter(Boolean);if(ids.length<count){document.getElementById('v423-status').textContent='❌ Một số câu chưa có MaCau.';return;}
+        save.disabled=true;document.getElementById('v423-status').textContent='⏳ Đang lưu mã đề...';
+        v42EditCall('editexam',{maDe:code,subject:subject,topic:topic2,skill:skill2,level:level2,minutes:minutes,name:name2,questionIds:ids.join(',')}).then(function(r){if(!r||!r.ok)throw new Error((r&&r.message)||'Không lưu được.');document.getElementById('v423-status').textContent='✅ Đã lưu thay đổi: '+r.count+' câu — '+r.minutes+' phút.';setTimeout(function(){window.closeV42EditExam();window.updateMadeList();var ms=document.getElementById('made-select');if(ms){ms.value=code;window.handleMadeChange();}},500);}).catch(function(e){document.getElementById('v423-status').textContent='❌ '+e.message;save.disabled=false;});
+      };
+    }).catch(function(e){if(body)body.innerHTML='<div style="padding:12px;border:1px solid #dc3545;color:#b00020;border-radius:8px">❌ '+escapeHTML(e.message)+'</div>';});
+  };
+})();
+
 // V41.1 FIX: Frontend exam generator bridge + UI logic.
 (function(){
   function bankForSubject(subject){
@@ -4449,6 +4533,7 @@ window.startQuiz = function() {
           created.push(data);
         }
         setStatus('Đã tạo '+created.length+' mã đề thành công.');
+        try { if (typeof window.updateMadeList === 'function') window.updateMadeList(); } catch(e) {}
         if(result){
           result.innerHTML='<div style="padding:10px;border:1px solid #198754;border-radius:8px;background:#f0fff5"><b>✅ Tạo đề thành công</b><br>'+created.map(function(x){return 'Mã đề: <b>'+escapeHTML(x.maDe)+'</b> — '+x.count+' câu — '+x.minutes+' phút <button type="button" class="v41-preview-btn" data-v41-code="'+escapeHTML(x.maDe)+'" style="margin-left:8px;padding:5px 9px;border:0;border-radius:6px;background:#0d6efd;color:#fff;cursor:pointer">Xem đề</button>';}).join('<br>')+'</div>';
           Array.prototype.forEach.call(result.querySelectorAll('.v41-preview-btn'),function(b){b.addEventListener('click',function(){window.openV41ExamPreview(b.getAttribute('data-v41-code')||'');});});
