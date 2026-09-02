@@ -14,7 +14,7 @@ let AppState = {
     userPermissions: [],
     madePermissions: [],
     rankings: [],
-    // V40: hai ngân hàng câu hỏi độc lập với Questions/BT.
+    // V40.1: hai ngân hàng câu hỏi độc lập với Questions/BT; cache phiên đã tách riêng.
     mathQuestionBank: [],
     englishQuestionBank: [],
     currentQuizData: [],
@@ -41,7 +41,7 @@ let AppState = {
 // ============================================================
 // V20 SPEED LAYER - LOAD ONCE / REUSE MANY TIMES
 // ============================================================
-const QUIZ_SESSION_CACHE_PREFIX = 'QUIZ_DATA_CACHE_V40_';
+const QUIZ_SESSION_CACHE_PREFIX = 'QUIZ_DATA_CACHE_V40_1_';
 const QUIZ_SESSION_CACHE_MAX_CHARS = 3500000;
 
 function getQuizCacheKey(maHS) {
@@ -51,7 +51,7 @@ function getQuizCacheKey(maHS) {
 function saveQuizSessionCache(maHS, data) {
     try {
         const payload = JSON.stringify({
-            version: 40,
+            version: 401,
             savedAt: Date.now(),
             maHS: String(maHS || '').trim(),
             data: data
@@ -72,7 +72,7 @@ function getQuizSessionCache(maHS) {
         const raw = sessionStorage.getItem(getQuizCacheKey(maHS));
         if (!raw) return null;
         const obj = JSON.parse(raw);
-        if (!obj || obj.version !== 40 || !obj.data) return null;
+        if (!obj || obj.version !== 401 || !obj.data) return null;
         return obj.data;
     } catch (e) {
         return null;
