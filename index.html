@@ -258,6 +258,10 @@ body.dark-mode .dict-v11-recent button { background:#2d2d2d; color:#eee; border-
             <select id="made-select" onchange="window.handleMadeChange()" style="width: 100%; padding: 14px; margin: 5px 0; font-size: 1.1em; border: 1px solid #540606; border-radius: 8px;">
                 <option value="">-- Chọn mã đề --</option>
             </select>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
+                <input id="made-code-input" type="text" placeholder="Hoặc nhập Mã đề V41..." style="flex:1;padding:11px;border:1px solid #ccc;border-radius:8px;box-sizing:border-box;font-size:1em;">
+                <button type="button" onclick="window.loadV42ExamByInput()" style="padding:11px 14px;background:#17a2b8;color:#fff;border:0;border-radius:8px;font-weight:bold;cursor:pointer;">Tải mã đề</button>
+            </div>
             <div id="made-passage-preview"></div>
         </div>
     </div>
