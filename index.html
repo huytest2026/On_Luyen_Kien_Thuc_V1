@@ -258,7 +258,10 @@ body.dark-mode .dict-v11-recent button { background:#2d2d2d; color:#eee; border-
             <select id="made-select" onchange="window.handleMadeChange()" style="width: 100%; padding: 14px; margin: 5px 0; font-size: 1.1em; border: 1px solid #540606; border-radius: 8px;">
                 <option value="">-- Chọn mã đề --</option>
             </select>
-                <button type="button" onclick="window.updateMadeList()" style="padding:10px 14px;background:#6f42c1;color:#fff;border:0;border-radius:8px;font-weight:bold;cursor:pointer;margin:2px 0 8px 0;">🔄 Atualizar danh sách mã đề</button>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 8px 0;">
+                    <button type="button" onclick="window.updateMadeList()" style="padding:10px 14px;background:#6f42c1;color:#fff;border:0;border-radius:8px;font-weight:bold;cursor:pointer;">🔄 Atualizar danh sách mã đề</button>
+                    <button type="button" id="btn-edit-v41-exam" onclick="window.openV42EditExam()" style="display:none;padding:10px 14px;background:#fd7e14;color:#fff;border:0;border-radius:8px;font-weight:bold;cursor:pointer;">✏️ Chỉnh sửa mã đề</button>
+                </div>
             <div id="made-passage-preview"></div>
         </div>
     </div>
