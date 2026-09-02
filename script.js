@@ -14,6 +14,9 @@ let AppState = {
     userPermissions: [],
     madePermissions: [],
     rankings: [],
+    // V40: hai ngân hàng câu hỏi độc lập với Questions/BT.
+    mathQuestionBank: [],
+    englishQuestionBank: [],
     currentQuizData: [],
     timerInterval: null,
     timerEndAt: 0,
@@ -38,7 +41,7 @@ let AppState = {
 // ============================================================
 // V20 SPEED LAYER - LOAD ONCE / REUSE MANY TIMES
 // ============================================================
-const QUIZ_SESSION_CACHE_PREFIX = 'QUIZ_DATA_CACHE_V20_';
+const QUIZ_SESSION_CACHE_PREFIX = 'QUIZ_DATA_CACHE_V40_';
 const QUIZ_SESSION_CACHE_MAX_CHARS = 3500000;
 
 function getQuizCacheKey(maHS) {
@@ -48,7 +51,7 @@ function getQuizCacheKey(maHS) {
 function saveQuizSessionCache(maHS, data) {
     try {
         const payload = JSON.stringify({
-            version: 20,
+            version: 40,
             savedAt: Date.now(),
             maHS: String(maHS || '').trim(),
             data: data
@@ -69,7 +72,7 @@ function getQuizSessionCache(maHS) {
         const raw = sessionStorage.getItem(getQuizCacheKey(maHS));
         if (!raw) return null;
         const obj = JSON.parse(raw);
-        if (!obj || obj.version !== 20 || !obj.data) return null;
+        if (!obj || obj.version !== 40 || !obj.data) return null;
         return obj.data;
     } catch (e) {
         return null;
@@ -553,21 +556,11 @@ function dictV11NormalizeWord(value) {
 // Lazy shards + IndexedDB + Memory Cache.
 // Chỉ tải shard cần thiết; sau đó giữ shard trong IndexedDB.
 // ==========================================
-// ============================================================
-// V36: DUAL OFFLINE DICTIONARY
-// Ưu tiên kho 50K gốc, sau đó mới tra kho 200K bổ sung.
-// Hai kho không cần ghép vật lý.
-// ============================================================
-const V16_DICT_DB_NAME = 'EnglishDictionaryOfflineV36Dual';
+const V16_DICT_DB_NAME = 'EnglishDictionaryOffline200K_V34';
 const V16_DICT_STORE = 'shards';
-const V16_DICT_VERSION = 36;
-
-const V36_DICT_SOURCES = [
-    { id: 'base50k', path: 'dictionary-50k/', count: 50000 },
-    { id: 'plus200k', path: 'dictionary-200k/core/', count: 200000 }
-];
-
-const V16_DICT_COUNT = 250000;
+const V16_DICT_VERSION = 34;
+const V16_DICT_PATH = 'dictionary-200k/core/';
+const V16_DICT_COUNT = 200000;
 const V16_DICT_MEMORY = new Map();
 const V16_DICT_LOADING = new Map();
 let v16DictDBPromise = null;
@@ -595,48 +588,26 @@ function v16ShardForWord(word) {
     return /^[a-z]$/.test(c) ? c : 'other';
 }
 
-function v36SourceKey(sourceId, shard) {
-    return sourceId + ':' + shard;
-}
-
-async function v16ReadShardFromIDB(sourceId, shard) {
+async function v16ReadShardFromIDB(shard) {
     const db = await v16OpenDictDB();
     if (!db) return null;
-
     return new Promise(resolve => {
         try {
             const tx = db.transaction(V16_DICT_STORE, 'readonly');
-            const req = tx.objectStore(V16_DICT_STORE).get(v36SourceKey(sourceId, shard));
-            req.onsuccess = () => {
-                const row = req.result;
-                if (!row || row.version !== V16_DICT_VERSION || row.sourceId !== sourceId) {
-                    resolve(null);
-                    return;
-                }
-                resolve(row.data || null);
-            };
+            const req = tx.objectStore(V16_DICT_STORE).get(shard);
+            req.onsuccess = () => resolve(req.result?.data || null);
             req.onerror = () => resolve(null);
-        } catch (e) {
-            resolve(null);
-        }
+        } catch (e) { resolve(null); }
     });
 }
 
-async function v16WriteShardToIDB(sourceId, shard, data) {
+async function v16WriteShardToIDB(shard, data) {
     const db = await v16OpenDictDB();
     if (!db) return;
-
     try {
         await new Promise(resolve => {
             const tx = db.transaction(V16_DICT_STORE, 'readwrite');
-            tx.objectStore(V16_DICT_STORE).put({
-                id: v36SourceKey(sourceId, shard),
-                sourceId,
-                shard,
-                version: V16_DICT_VERSION,
-                data,
-                savedAt: Date.now()
-            });
+            tx.objectStore(V16_DICT_STORE).put({ id: shard, data, savedAt: Date.now() });
             tx.oncomplete = () => resolve();
             tx.onerror = () => resolve();
             tx.onabort = () => resolve();
@@ -644,100 +615,44 @@ async function v16WriteShardToIDB(sourceId, shard, data) {
     } catch (e) {}
 }
 
-async function v16LoadShard(sourceId, shard) {
-    const source = V36_DICT_SOURCES.find(item => item.id === sourceId);
-    if (!source) return null;
-
-    const memoryKey = v36SourceKey(sourceId, shard);
-
-    if (V16_DICT_MEMORY.has(memoryKey)) {
-        return V16_DICT_MEMORY.get(memoryKey);
-    }
-
-    if (V16_DICT_LOADING.has(memoryKey)) {
-        return V16_DICT_LOADING.get(memoryKey);
-    }
+async function v16LoadShard(shard) {
+    if (V16_DICT_MEMORY.has(shard)) return V16_DICT_MEMORY.get(shard);
+    if (V16_DICT_LOADING.has(shard)) return V16_DICT_LOADING.get(shard);
 
     const promise = (async () => {
-        let data = await v16ReadShardFromIDB(sourceId, shard);
-
+        let data = await v16ReadShardFromIDB(shard);
         if (!data) {
             try {
-                const response = await fetch(source.path + shard + '.json', {
-                    cache: 'force-cache'
-                });
-
-                if (!response.ok) {
-                    throw new Error('HTTP ' + response.status);
-                }
-
+                const response = await fetch(`${V16_DICT_PATH}${shard}.json`, { cache: 'force-cache' });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 data = await response.json();
-                v16WriteShardToIDB(sourceId, shard, data).catch(() => {});
+                v16WriteShardToIDB(shard, data).catch(() => {});
             } catch (e) {
                 data = null;
             }
         }
-
-        if (data) {
-            V16_DICT_MEMORY.set(memoryKey, data);
-        }
-
+        if (data) V16_DICT_MEMORY.set(shard, data);
         return data;
     })();
 
-    V16_DICT_LOADING.set(memoryKey, promise);
-
+    V16_DICT_LOADING.set(shard, promise);
     try {
         return await promise;
     } finally {
-        V16_DICT_LOADING.delete(memoryKey);
+        V16_DICT_LOADING.delete(shard);
     }
 }
 
-function v36FindEntry(data, key) {
-    if (!data) return null;
-
-    if (Object.prototype.hasOwnProperty.call(data, key)) {
-        return data[key];
-    }
-
-    if (data.words && Object.prototype.hasOwnProperty.call(data.words, key)) {
-        return data.words[key];
-    }
-
-    if (Array.isArray(data)) {
-        return data.find(item => {
-            const candidate = item && (item.word || item.w || item.headword || item.term);
-            return dictV11NormalizeWord(candidate) === key;
-        }) || null;
-    }
-
-    return null;
-}
-
-// Giữ tên hàm cũ để toàn bộ hệ thống quiz và từ điển cũ không bị vỡ.
-// Nhưng bên trong nay tra 50K trước, rồi mới sang 200K.
 async function getOffline50KEntry(word) {
     const key = dictV11NormalizeWord(word);
     if (!key) return null;
-
-    const shard = v16ShardForWord(key);
-
-    for (const source of V36_DICT_SOURCES) {
-        const data = await v16LoadShard(source.id, shard);
-        const entry = v36FindEntry(data, key);
-
-        if (entry) {
-            return entry;
-        }
-    }
-
-    return null;
+    const data = await v16LoadShard(v16ShardForWord(key));
+    return data?.[key] || null;
 }
 
 function v16BackgroundPreload() {
-    // V36 giữ lazy-load để không làm trang bị chậm khi khởi động.
-    // Không preload toàn bộ 250K dữ liệu.
+    // V34: 200K is lazy-loaded. Never preload all shards at startup.
+    // Recent words are already cached by the lookup flow and IndexedDB.
     return;
 }
 
@@ -2719,6 +2634,11 @@ window.handleQuizData = function(data, fromSessionCache = false) {
             made: String(p.made || p.maDe || p.MADE || p[2] || '').trim()
         })).filter(p => p.maHS !== '' && p.mon !== '' && p.made !== '');
 
+        // V40: nhận 2 ngân hàng riêng từ Apps Script. Không chạm vào AppState.allQuizData.
+        AppState.mathQuestionBank = Array.isArray(data.mathQuestionBank) ? data.mathQuestionBank.slice() : [];
+        AppState.englishQuestionBank = Array.isArray(data.englishQuestionBank) ? data.englishQuestionBank.slice() : [];
+        if (typeof window.renderQuestionBank === 'function') window.renderQuestionBank();
+
         console.log('🔐 V21 quyền đã nhận:', {
             topicPermissions: AppState.userPermissions.length,
             madePermissions: AppState.madePermissions.length
@@ -2971,7 +2891,7 @@ function getCorrectKeys(item) {
     return [...new Set(keys)];
 }
 
-// V36 FIX: index.html hiện tại gọi startQuizWithToolCheck().
+// V36.11 FIX: HTML gọi startQuizWithToolCheck().
 window.startQuizWithToolCheck = function() {
     if (typeof window.startQuiz !== 'function') {
         alert('Không thể khởi động bài làm vì hàm startQuiz chưa được tải.');
@@ -3011,7 +2931,14 @@ window.startQuiz = function() {
     const mon = selectedSubjectRaw;
     if (!mon) return alert("Vui lòng chọn môn học trước khi bắt đầu!");
 
-    const maHS = document.getElementById('student-code') ? document.getElementById('student-code').value.trim() : localStorage.getItem('saved_maHS');
+    const studentEl = document.getElementById('student-code');
+    let maHS = studentEl ? String(studentEl.value || '').trim() : '';
+    // V36.11: dự phòng khi giao diện đang hiển thị tên học sinh nhưng value của option bị rỗng.
+    if (!maHS && studentEl && studentEl.options && studentEl.selectedIndex >= 0) {
+        const selectedText = String(studentEl.options[studentEl.selectedIndex].text || '').trim();
+        if (selectedText && !/^--\s*chọn học sinh\s*--$/i.test(selectedText)) maHS = selectedText;
+    }
+    if (!maHS) maHS = String(localStorage.getItem('saved_maHS') || '').trim();
     
     const toggleMade = document.getElementById('toggle-made');
     const selectedMade = (toggleMade && toggleMade.checked && document.getElementById('made-select')) ? document.getElementById('made-select').value.trim() : '';
@@ -4082,6 +4009,84 @@ window.calcCalculate = function() {
     }
 };
 //--------------------------------------------------------
+window.renderQuestionBank = function() {
+    const panel = document.getElementById('question-bank-panel');
+    if (!panel) return;
+
+    const subject = String(document.getElementById('subject-select')?.value || '').trim();
+    const bank = cleanKey(subject) === cleanKey('Toán') ? (AppState.mathQuestionBank || [])
+        : cleanKey(subject) === cleanKey('Tiếng Anh') ? (AppState.englishQuestionBank || [])
+        : [];
+
+    const topicSelect = document.getElementById('bank-topic-select');
+    const levelSelect = document.getElementById('bank-level-select');
+    const skillSelect = document.getElementById('bank-skill-select');
+    const searchInput = document.getElementById('bank-search-input');
+    const list = document.getElementById('question-bank-list');
+    const count = document.getElementById('question-bank-count');
+    if (!topicSelect || !levelSelect || !skillSelect || !searchInput || !list) return;
+
+    const get = (q, keys) => {
+        for (const key of keys) {
+            if (q && q[key] != null && String(q[key]).trim() !== '') return String(q[key]).trim();
+        }
+        return '';
+    };
+
+    const topics = [...new Set(bank.map(q => get(q, ['ChuDe','Chủ đề','Topic'])).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'vi'));
+    const levels = [...new Set(bank.map(q => get(q, ['DoKho','Độ khó','Difficulty'])).filter(Boolean))];
+    const skills = [...new Set(bank.map(q => get(q, ['KyNang','Kỹ năng','Skill'])).filter(Boolean))];
+
+    const refill = (el, values, label) => {
+        const old = el.value;
+        el.innerHTML = '<option value="">' + label + '</option>' + values.map(v => '<option value="' + escapeHTML(v) + '">' + escapeHTML(v) + '</option>').join('');
+        if (values.includes(old)) el.value = old;
+    };
+    refill(topicSelect, topics, '-- Tất cả chủ đề --');
+    refill(levelSelect, levels, '-- Tất cả độ khó --');
+    refill(skillSelect, skills, '-- Tất cả kỹ năng --');
+
+    const topic = topicSelect.value, level = levelSelect.value, skill = skillSelect.value;
+    const term = searchInput.value.trim().toLowerCase();
+    const filtered = bank.filter(q => {
+        const t = get(q, ['ChuDe','Chủ đề','Topic']);
+        const l = get(q, ['DoKho','Độ khó','Difficulty']);
+        const sk = get(q, ['KyNang','Kỹ năng','Skill']);
+        const text = Object.values(q || {}).map(v => String(v ?? '')).join(' ').toLowerCase();
+        return (!topic || t === topic) && (!level || l === level) && (!skill || sk === skill) && (!term || text.includes(term));
+    });
+
+    if (count) count.textContent = 'Hiển thị ' + filtered.length + '/' + bank.length + ' câu';
+    if (!bank.length) {
+        list.innerHTML = '<div style="padding:12px;color:#666;">Chưa có dữ liệu ngân hàng cho môn này.</div>';
+        return;
+    }
+    if (!filtered.length) {
+        list.innerHTML = '<div style="padding:12px;color:#666;">Không tìm thấy câu phù hợp.</div>';
+        return;
+    }
+    list.innerHTML = filtered.slice(0, 100).map((q, i) => {
+        const id = get(q, ['MaCau','Mã câu','ID']) || ('#' + (i + 1));
+        const t = get(q, ['ChuDe','Chủ đề','Topic']);
+        const l = get(q, ['DoKho','Độ khó','Difficulty']);
+        const sk = get(q, ['KyNang','Kỹ năng','Skill']);
+        const question = get(q, ['CauHoi','Câu hỏi','Question']);
+        return '<div style="padding:10px 12px;border-bottom:1px solid #e5e5e5;">' +
+            '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;"><b>' + escapeHTML(id) + '</b>' +
+            (t ? '<span style="background:#eef6ff;padding:2px 7px;border-radius:10px;">' + escapeHTML(t) + '</span>' : '') +
+            (l ? '<span style="background:#fff3cd;padding:2px 7px;border-radius:10px;">' + escapeHTML(l) + '</span>' : '') +
+            (sk ? '<span style="background:#eaf7ee;padding:2px 7px;border-radius:10px;">' + escapeHTML(sk) + '</span>' : '') + '</div>' +
+            '<div style="margin-top:5px;">' + escapeHTML(question) + '</div></div>';
+    }).join('');
+};
+
+window.toggleQuestionBank = function() {
+    const panel = document.getElementById('question-bank-panel');
+    if (!panel) return;
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    if (panel.style.display === 'block') window.renderQuestionBank();
+};
+
 document.addEventListener('DOMContentLoaded', () => {
     const btnTaoDeToan = document.getElementById('btn-tao-de-toan');
     
@@ -4530,11 +4535,3 @@ window.printPDF = function() {
 };
 
 window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e) {} });
-
-
-// V36 diagnostic info
-window.DictionaryV36 = {
-    version: 'V36.1-FIX',
-    sources: V36_DICT_SOURCES.map(item => ({ ...item })),
-    lookupOrder: ['dictionary-50k', 'dictionary-200k/core']
-};
