@@ -553,11 +553,21 @@ function dictV11NormalizeWord(value) {
 // Lazy shards + IndexedDB + Memory Cache.
 // Chỉ tải shard cần thiết; sau đó giữ shard trong IndexedDB.
 // ==========================================
-const V16_DICT_DB_NAME = 'EnglishDictionaryOffline200K_V34';
+// ============================================================
+// V36: DUAL OFFLINE DICTIONARY
+// Ưu tiên kho 50K gốc, sau đó mới tra kho 200K bổ sung.
+// Hai kho không cần ghép vật lý.
+// ============================================================
+const V16_DICT_DB_NAME = 'EnglishDictionaryOfflineV36Dual';
 const V16_DICT_STORE = 'shards';
-const V16_DICT_VERSION = 34;
-const V16_DICT_PATH = 'dictionary-200k/core/';
-const V16_DICT_COUNT = 200000;
+const V16_DICT_VERSION = 36;
+
+const V36_DICT_SOURCES = [
+    { id: 'base50k', path: 'dictionary-50k/', count: 50000 },
+    { id: 'plus200k', path: 'dictionary-200k/core/', count: 200000 }
+];
+
+const V16_DICT_COUNT = 250000;
 const V16_DICT_MEMORY = new Map();
 const V16_DICT_LOADING = new Map();
 let v16DictDBPromise = null;
@@ -585,26 +595,48 @@ function v16ShardForWord(word) {
     return /^[a-z]$/.test(c) ? c : 'other';
 }
 
-async function v16ReadShardFromIDB(shard) {
+function v36SourceKey(sourceId, shard) {
+    return sourceId + ':' + shard;
+}
+
+async function v16ReadShardFromIDB(sourceId, shard) {
     const db = await v16OpenDictDB();
     if (!db) return null;
+
     return new Promise(resolve => {
         try {
             const tx = db.transaction(V16_DICT_STORE, 'readonly');
-            const req = tx.objectStore(V16_DICT_STORE).get(shard);
-            req.onsuccess = () => resolve(req.result?.data || null);
+            const req = tx.objectStore(V16_DICT_STORE).get(v36SourceKey(sourceId, shard));
+            req.onsuccess = () => {
+                const row = req.result;
+                if (!row || row.version !== V16_DICT_VERSION || row.sourceId !== sourceId) {
+                    resolve(null);
+                    return;
+                }
+                resolve(row.data || null);
+            };
             req.onerror = () => resolve(null);
-        } catch (e) { resolve(null); }
+        } catch (e) {
+            resolve(null);
+        }
     });
 }
 
-async function v16WriteShardToIDB(shard, data) {
+async function v16WriteShardToIDB(sourceId, shard, data) {
     const db = await v16OpenDictDB();
     if (!db) return;
+
     try {
         await new Promise(resolve => {
             const tx = db.transaction(V16_DICT_STORE, 'readwrite');
-            tx.objectStore(V16_DICT_STORE).put({ id: shard, data, savedAt: Date.now() });
+            tx.objectStore(V16_DICT_STORE).put({
+                id: v36SourceKey(sourceId, shard),
+                sourceId,
+                shard,
+                version: V16_DICT_VERSION,
+                data,
+                savedAt: Date.now()
+            });
             tx.oncomplete = () => resolve();
             tx.onerror = () => resolve();
             tx.onabort = () => resolve();
@@ -612,44 +644,100 @@ async function v16WriteShardToIDB(shard, data) {
     } catch (e) {}
 }
 
-async function v16LoadShard(shard) {
-    if (V16_DICT_MEMORY.has(shard)) return V16_DICT_MEMORY.get(shard);
-    if (V16_DICT_LOADING.has(shard)) return V16_DICT_LOADING.get(shard);
+async function v16LoadShard(sourceId, shard) {
+    const source = V36_DICT_SOURCES.find(item => item.id === sourceId);
+    if (!source) return null;
+
+    const memoryKey = v36SourceKey(sourceId, shard);
+
+    if (V16_DICT_MEMORY.has(memoryKey)) {
+        return V16_DICT_MEMORY.get(memoryKey);
+    }
+
+    if (V16_DICT_LOADING.has(memoryKey)) {
+        return V16_DICT_LOADING.get(memoryKey);
+    }
 
     const promise = (async () => {
-        let data = await v16ReadShardFromIDB(shard);
+        let data = await v16ReadShardFromIDB(sourceId, shard);
+
         if (!data) {
             try {
-                const response = await fetch(`${V16_DICT_PATH}${shard}.json`, { cache: 'force-cache' });
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const response = await fetch(source.path + shard + '.json', {
+                    cache: 'force-cache'
+                });
+
+                if (!response.ok) {
+                    throw new Error('HTTP ' + response.status);
+                }
+
                 data = await response.json();
-                v16WriteShardToIDB(shard, data).catch(() => {});
+                v16WriteShardToIDB(sourceId, shard, data).catch(() => {});
             } catch (e) {
                 data = null;
             }
         }
-        if (data) V16_DICT_MEMORY.set(shard, data);
+
+        if (data) {
+            V16_DICT_MEMORY.set(memoryKey, data);
+        }
+
         return data;
     })();
 
-    V16_DICT_LOADING.set(shard, promise);
+    V16_DICT_LOADING.set(memoryKey, promise);
+
     try {
         return await promise;
     } finally {
-        V16_DICT_LOADING.delete(shard);
+        V16_DICT_LOADING.delete(memoryKey);
     }
 }
 
+function v36FindEntry(data, key) {
+    if (!data) return null;
+
+    if (Object.prototype.hasOwnProperty.call(data, key)) {
+        return data[key];
+    }
+
+    if (data.words && Object.prototype.hasOwnProperty.call(data.words, key)) {
+        return data.words[key];
+    }
+
+    if (Array.isArray(data)) {
+        return data.find(item => {
+            const candidate = item && (item.word || item.w || item.headword || item.term);
+            return dictV11NormalizeWord(candidate) === key;
+        }) || null;
+    }
+
+    return null;
+}
+
+// Giữ tên hàm cũ để toàn bộ hệ thống quiz và từ điển cũ không bị vỡ.
+// Nhưng bên trong nay tra 50K trước, rồi mới sang 200K.
 async function getOffline50KEntry(word) {
     const key = dictV11NormalizeWord(word);
     if (!key) return null;
-    const data = await v16LoadShard(v16ShardForWord(key));
-    return data?.[key] || null;
+
+    const shard = v16ShardForWord(key);
+
+    for (const source of V36_DICT_SOURCES) {
+        const data = await v16LoadShard(source.id, shard);
+        const entry = v36FindEntry(data, key);
+
+        if (entry) {
+            return entry;
+        }
+    }
+
+    return null;
 }
 
 function v16BackgroundPreload() {
-    // V34: 200K is lazy-loaded. Never preload all shards at startup.
-    // Recent words are already cached by the lookup flow and IndexedDB.
+    // V36 giữ lazy-load để không làm trang bị chậm khi khởi động.
+    // Không preload toàn bộ 250K dữ liệu.
     return;
 }
 
@@ -2883,7 +2971,7 @@ function getCorrectKeys(item) {
     return [...new Set(keys)];
 }
 
-// V36.11 FIX: HTML gọi startQuizWithToolCheck().
+// V36 FIX: index.html hiện tại gọi startQuizWithToolCheck().
 window.startQuizWithToolCheck = function() {
     if (typeof window.startQuiz !== 'function') {
         alert('Không thể khởi động bài làm vì hàm startQuiz chưa được tải.');
@@ -2923,14 +3011,7 @@ window.startQuiz = function() {
     const mon = selectedSubjectRaw;
     if (!mon) return alert("Vui lòng chọn môn học trước khi bắt đầu!");
 
-    const studentEl = document.getElementById('student-code');
-    let maHS = studentEl ? String(studentEl.value || '').trim() : '';
-    // V36.11: dự phòng khi giao diện đang hiển thị tên học sinh nhưng value của option bị rỗng.
-    if (!maHS && studentEl && studentEl.options && studentEl.selectedIndex >= 0) {
-        const selectedText = String(studentEl.options[studentEl.selectedIndex].text || '').trim();
-        if (selectedText && !/^--\s*chọn học sinh\s*--$/i.test(selectedText)) maHS = selectedText;
-    }
-    if (!maHS) maHS = String(localStorage.getItem('saved_maHS') || '').trim();
+    const maHS = document.getElementById('student-code') ? document.getElementById('student-code').value.trim() : localStorage.getItem('saved_maHS');
     
     const toggleMade = document.getElementById('toggle-made');
     const selectedMade = (toggleMade && toggleMade.checked && document.getElementById('made-select')) ? document.getElementById('made-select').value.trim() : '';
@@ -4449,3 +4530,11 @@ window.printPDF = function() {
 };
 
 window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e) {} });
+
+
+// V36 diagnostic info
+window.DictionaryV36 = {
+    version: 'V36.1-FIX',
+    sources: V36_DICT_SOURCES.map(item => ({ ...item })),
+    lookupOrder: ['dictionary-50k', 'dictionary-200k/core']
+};
