@@ -2016,3 +2016,4 @@ if (typeof loadData === 'undefined') {
         }
     };
 }
+window.loadData = tenHamTaideMoiCuaBan;
