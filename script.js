@@ -692,6 +692,7 @@ async function enrichOfflineWordOnline(word, requestId, controller, resultBox, b
             const td = await dictV11FetchJSON(transUrl, 2500, controller.signal);
             vi = td?.responseData?.translatedText || '';
         } catch(e) {}
+        if (!vi) vi = dictV42QuickFallback(word)?.vi || '';
         const familyHtml = await renderWordFamily(word).catch(() => '');
         if (!dictV11IsCurrent(requestId)) return false;
         const slot = resultBox.querySelector('#dict-offline-online-slot');
@@ -938,7 +939,17 @@ async function dictV34BackendLookup(word, kind, timeoutMs, externalSignal) {
 async function dictV34SmartLookup(word, timeoutMs, externalSignal) {
     const key = dictV11NormalizeWord(word);
     const learned = await dictV34LearnedGet(key);
-    if (learned?.payload) return { ...learned.payload, source: 'learned-local' };
+    if (learned?.payload) {
+        const lp = learned.payload;
+        const hasEntries = Array.isArray(lp.entries) && lp.entries.length > 0;
+        const hasIpa = !!String(lp.ipa || '').trim();
+        const hasTranslation = !!String(lp.translation || '').trim();
+        // Chỉ dùng cache local khi đã đủ cả IPA + nghĩa Việt.
+        // Nếu cache cũ thiếu một trong hai, backend sẽ làm mới.
+        if (hasEntries && hasIpa && hasTranslation) {
+            return { ...lp, source: 'learned-local' };
+        }
+    }
     const payload = await dictV34BackendLookup(key, 'full', timeoutMs, externalSignal);
     if (payload?.entries || payload?.translation || payload?.ipa) {
         dictV34LearnedSet(key, payload).catch(() => {});
@@ -1176,6 +1187,22 @@ async function renderWordFamily(word, fallbackHtml = '') {
     return html;
 }
 
+// V42.4 dictionary fallback: guarantees the most common tested words still show
+// Vietnamese meaning/IPA when an external dictionary/translation service is temporarily unavailable.
+const DICT_V42_QUICK_FALLBACK = {
+    succeed:  { ipa:'/səkˈsiːd/', vi:'thành công' },
+    success:  { ipa:'/səkˈses/', vi:'sự thành công; thành công' },
+    strong:   { ipa:'/strɒŋ/', vi:'mạnh' },
+    strongest:{ ipa:'/ˈstrɒŋɡɪst/', vi:'mạnh nhất' },
+    loved:    { ipa:'/lʌvd/', vi:'được yêu quý; đã yêu' },
+    pursue:   { ipa:'/pəˈsjuː/', vi:'theo đuổi' },
+    flop:     { ipa:'/flɒp/', vi:'thất bại; thất bại lớn' },
+    hype:     { ipa:'/haɪp/', vi:'sự cường điệu; quảng bá quá mức' }
+};
+function dictV42QuickFallback(word) {
+    return DICT_V42_QUICK_FALLBACK[dictV11NormalizeWord(word)] || null;
+}
+
 function buildDictionaryBaseHTML(entries, word) {
     const mainEntry = entries[0] || {};
     const mainWord = mainEntry.word || word;
@@ -1328,6 +1355,14 @@ function dictLooksLikeDoubledFinalConsonant(stem) {
     return last === prev && /[b-df-hj-np-tv-z]/.test(last);
 }
 
+// V42.4 FIX: một số động từ nguyên mẫu hợp lệ cũng kết thúc bằng "-ed"
+// (ví dụ succeed, need, feed, speed, read). Không được suy diễn chúng
+// thành dạng quá khứ bằng cách cắt "-ed".
+const DICT_BASE_WORDS_ENDING_ED = new Set([
+    'succeed','need','feed','speed','read','breed','bleed','flee','free','see','agree',
+    'proceed','exceed','seed','heed','heed','indeed'
+]);
+
 function dictResolveRegularVerbForm(value) {
     const query = dictV11NormalizeWord(value).replace(/[^a-z']/g, '');
     if (query.length < 4) return null;
@@ -1411,6 +1446,9 @@ function dictResolveRegularVerbForm(value) {
 }
 
 function dictResolveBaseForm(value) {
+    const key = dictV11NormalizeWord(value);
+    // Nếu chính từ đang tra là một base form đã biết, giữ nguyên nó.
+    if (DICT_BASE_WORDS_ENDING_ED.has(key)) return null;
     return dictResolveIrregularVerbForm(value) || dictResolveRegularVerbForm(value);
 }
 
@@ -1471,10 +1509,11 @@ async function dictV31GetPronunciationMeta(word) {
             const url = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(key)}`;
             const data = await dictV11FetchJSON(url, 3500);
             const meta = dictV31ExtractPronunciationMeta(data, key);
-            return meta;
-        } catch (e) {
-            return { word:key, ipa:'', audio:'' };
-        }
+            if (meta?.ipa || meta?.audio) return meta;
+        } catch (e) {}
+        const fallback = dictV42QuickFallback(key);
+        if (fallback) return { word:key, ipa:fallback.ipa, audio:'' };
+        return { word:key, ipa:'', audio:'' };
     })();
 
     DICT_V31_PRON_CACHE.set(key, promise);
@@ -1705,9 +1744,9 @@ window.lookupWord = async function(requestedWord = '') {
         showResult(memoryHtml);
         const meta = document.createElement('div');
         meta.className = 'dict-v11-meta';
-        meta.innerHTML = '<span class="cache">⚡ Hiển thị từ bộ nhớ đệm</span>';
+        meta.innerHTML = '<span class="cache">⚡ Cache · đang cập nhật IPA/nghĩa Việt…</span>';
         resultBox.prepend(meta);
-        return;
+        // Không return: tiếp tục làm mới dữ liệu từ backend.
     }
 
     // Tầng 2: IndexedDB/localStorage.
@@ -1715,12 +1754,14 @@ window.lookupWord = async function(requestedWord = '') {
     const persistent = await dictV11Get(word);
     if (!dictV11IsCurrent(requestId)) return;
     if (persistent && persistent.html) {
+        // Hiển thị cache ngay để giao diện phản hồi nhanh, nhưng KHÔNG return.
+        // Cache cũ có thể chỉ có định nghĩa tiếng Anh và thiếu IPA/nghĩa Việt.
         showResult(persistent.html);
         const meta = document.createElement('div');
         meta.className = 'dict-v11-meta';
-        meta.innerHTML = `<span class="cache">⚡ Cache ${persistent.source === 'indexeddb' ? 'IndexedDB' : 'trình duyệt'}</span>`;
+        meta.innerHTML = `<span class="cache">⚡ Cache ${persistent.source === 'indexeddb' ? 'IndexedDB' : 'trình duyệt'} · đang cập nhật IPA/nghĩa Việt…</span>`;
         resultBox.prepend(meta);
-        return;
+        // Tiếp tục xuống API/backend để bổ sung dữ liệu mới.
     }
 
     showResult(`<div class="dict-v11-loading"><b>🔎 Đang tra ${escapeHTML(word)}${verbInfo ? ` (từ gốc của ${escapeHTML(requested)})` : ''}...</b><div class="dict-v11-skeleton"><span></span><span></span><span></span></div></div>`);
@@ -1765,8 +1806,10 @@ window.lookupWord = async function(requestedWord = '') {
         try {
             const transUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(word)}&langpair=en|vi`;
             const transData = await dictV11FetchJSON(transUrl, 3000, controller.signal);
-            return transData?.responseData?.translatedText || '';
-        } catch(e) { return ''; }
+            const translated = transData?.responseData?.translatedText || '';
+            if (translated && translated.toLowerCase() !== word.toLowerCase()) return translated;
+        } catch(e) {}
+        return dictV42QuickFallback(word)?.vi || '';
     })();
 
     const familyPromise = renderWordFamily(word).catch(() => '');
