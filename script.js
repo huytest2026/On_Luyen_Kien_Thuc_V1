@@ -1226,7 +1226,12 @@ function buildDictionaryBaseHTML(entries, word) {
             html += `<div class="dict-ipa-row"><span class="dict-ipa-label">${uniqueIPA.length > 1 ? 'Phiên âm ' + (i + 1) : 'IPA'}</span><code>${escapeHTML(ipa)}</code></div>`;
         });
     } else {
-        html += '<div class="dict-ipa-missing">Chưa có dữ liệu IPA từ nguồn từ điển.</div>';
+        const quick = dictV42QuickFallback(word);
+        if (quick?.ipa) {
+            html += `<div class="dict-ipa-row"><span class="dict-ipa-label">IPA</span><code>${escapeHTML(quick.ipa)}</code></div>`;
+        } else {
+            html += '<div class="dict-ipa-missing">Chưa có dữ liệu IPA từ nguồn từ điển.</div>';
+        }
     }
     html += `<div class="dict-ipa-note">💡 IPA là phiên âm quốc tế; nút 🔊 dùng audio chuẩn nếu nguồn cung cấp, nếu không sẽ dùng giọng đọc của trình duyệt.</div>
     </div>
@@ -1786,12 +1791,36 @@ window.lookupWord = async function(requestedWord = '') {
             return;
         } catch (fallbackError) {
             if (!dictV11IsCurrent(requestId)) return;
+            const quick = dictV42QuickFallback(word);
+            if (quick) {
+                const quickHtml = `<div class="dict-word-head"><b style="font-size:1.45em;color:#540606;">${escapeHTML(word)}</b>${speechButtonHTML(word)}</div>
+                    <div class="dict-pronunciation-card"><div class="dict-pronunciation-title">🔤 Phiên âm IPA</div>
+                    <div class="dict-ipa-row"><span class="dict-ipa-label">IPA</span><code>${escapeHTML(quick.ipa || '')}</code></div>
+                    <div class="dict-ipa-note">💡 Dữ liệu dự phòng nội bộ.</div></div>
+                    <div style="margin:8px 0;padding:10px;background:#e8f5e9;border:1px solid #c8e6c9;border-radius:7px;"><b style="color:#2e7d32;">🇻🇳 Nghĩa tiếng Việt:</b> <span style="font-weight:700;color:#1b5e20;">${escapeHTML(quick.vi || '')}</span></div>
+                    <div class="dict-v11-meta">⚡ Fallback V42.4: nguồn online tạm thời không phản hồi.</div>`;
+                showResult(quickHtml);
+                await dictV11Save(word, dictV26GetResultHTMLForCache(resultBox));
+                return;
+            }
             showResult(`<span style="color:red;">Không tìm thấy từ <b>${escapeHTML(word)}</b>. Vui lòng thử lại sau!</span>`);
             return;
         }
     }
 
     if (!Array.isArray(data) || !data.length) {
+        const quick = dictV42QuickFallback(word);
+        if (quick) {
+            const quickHtml = `<div class="dict-word-head"><b style="font-size:1.45em;color:#540606;">${escapeHTML(word)}</b>${speechButtonHTML(word)}</div>
+                <div class="dict-pronunciation-card"><div class="dict-pronunciation-title">🔤 Phiên âm IPA</div>
+                <div class="dict-ipa-row"><span class="dict-ipa-label">IPA</span><code>${escapeHTML(quick.ipa || '')}</code></div>
+                <div class="dict-ipa-note">💡 Dữ liệu dự phòng nội bộ.</div></div>
+                <div style="margin:8px 0;padding:10px;background:#e8f5e9;border:1px solid #c8e6c9;border-radius:7px;"><b style="color:#2e7d32;">🇻🇳 Nghĩa tiếng Việt:</b> <span style="font-weight:700;color:#1b5e20;">${escapeHTML(quick.vi || '')}</span></div>
+                <div class="dict-v11-meta">⚡ Fallback V42.4: không có dữ liệu từ nguồn online.</div>`;
+            showResult(quickHtml);
+            await dictV11Save(word, dictV26GetResultHTMLForCache(resultBox));
+            return;
+        }
         showResult(`<span style="color:red;">Không tìm thấy từ <b>${escapeHTML(word)}</b>.</span>`);
         return;
     }
