@@ -562,9 +562,10 @@ function dictV11NormalizeWord(value) {
 // ==========================================
 const V16_DICT_DB_NAME = 'EnglishDictionaryOffline200K_V34';
 const V16_DICT_STORE = 'shards';
-const V16_DICT_VERSION = 34;
-const V16_DICT_PATH = 'dictionary-200k/core/';
-const V16_DICT_COUNT = 200000;
+const V16_DICT_VERSION = 42;
+const V16_DICT_PATH = 'dictionary-200k/core2/';
+const V16_DICT_COUNT = 300000;
+const V16_DICT_VERSION_LABEL = 'V42.4-DICT-200K-2026.09';
 const V16_DICT_MEMORY = new Map();
 const V16_DICT_LOADING = new Map();
 let v16DictDBPromise = null;
@@ -588,8 +589,9 @@ function v16OpenDictDB() {
 
 function v16ShardForWord(word) {
     const w = dictV11NormalizeWord(word);
-    const c = w.charAt(0);
-    return /^[a-z]$/.test(c) ? c : 'other';
+    if (/^[a-z]{2}/.test(w)) return w.slice(0,2);
+    if (/^[a-z]/.test(w)) return w.charAt(0);
+    return 'other';
 }
 
 async function v16ReadShardFromIDB(shard) {
@@ -647,32 +649,50 @@ async function v16LoadShard(shard) {
     }
 }
 
-async function getOffline50KEntry(word) {
+async function getOfflineDictionaryEntry(word) {
     const key = dictV11NormalizeWord(word);
     if (!key) return null;
     const data = await v16LoadShard(v16ShardForWord(key));
     return data?.[key] || null;
 }
 
-function v16BackgroundPreload() {
-    // V34: 200K is lazy-loaded. Never preload all shards at startup.
-    // Recent words are already cached by the lookup flow and IndexedDB.
-    return;
+// Backward-compatible alias for older V42.4 code paths.
+async function getOffline50KEntry(word) { return getOfflineDictionaryEntry(word); }
+
+function dictOfflineRecords(entry) {
+    if (!entry) return [];
+    return Array.isArray(entry) ? entry : [entry];
+}
+
+function dictPosLabel(pos) {
+    return ({v:'Verb',n:'Noun',adj:'Adjective',adv:'Adverb',pron:'Pronoun',prep:'Preposition',conj:'Conjunction',det:'Determiner'}[pos] || pos || '');
 }
 
 function buildOffline10KHTML(word, entry) {
-    const ipa = entry?.ipa || '';
+    const records = dictOfflineRecords(entry);
+    if (!records.length) return '';
+    const first = records[0] || {};
+    const requested = dictV11NormalizeWord(word);
+    const base = first.base || requested;
+    const ipa = first.ipa || '';
+    const allForms = [...new Set(records.flatMap(r => Array.isArray(r.forms) ? r.forms : []))].filter(Boolean);
+    const meanings = [...new Set(records.flatMap(r => Array.isArray(r.vi) ? r.vi : []))].filter(Boolean).slice(0, 12);
+    const pos = [...new Set(records.map(r => dictPosLabel(r.pos)).filter(Boolean))];
+    const isVariant = base !== requested;
+    const formRows = allForms.filter(x => x !== base).slice(0, 12);
     return `
         <div class="dict-offline-card" style="background:#eef7ff;border:1px solid #b8d8f0;border-radius:10px;padding:14px;margin-bottom:10px;">
             <div class="dict-word-head" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                <b style="font-size:1.45em;color:#540606;">${escapeHTML(word)}</b>
-                <span style="font-size:.82em;background:#dff1ff;color:#145a86;padding:4px 8px;border-radius:999px;">⚡ OFFLINE 200K</span>
-                ${speechButtonHTML(word)}
+                <b style="font-size:1.45em;color:#540606;">${escapeHTML(requested)}</b>
+                <span style="font-size:.82em;background:#dff1ff;color:#145a86;padding:4px 8px;border-radius:999px;">⚡ OFFLINE DICTIONARY</span>
+                ${speechButtonHTML(requested)}
             </div>
+            ${isVariant ? `<div class="dict-base-form-note" style="margin-top:9px;padding:9px 11px;background:#fff8e1;border:1px solid #ffe082;border-radius:8px;"><b>🔗 Dạng từ:</b> ${escapeHTML(requested)} → <b>${escapeHTML(base)}</b></div>` : ''}
             ${ipa ? `<div style="margin-top:9px;font-size:1.12em;"><b>🔤 IPA:</b> <code style="font-size:1.1em;">${escapeHTML(ipa)}</code></div>` : ''}
-            <div style="margin-top:10px;color:#555;font-size:.92em;">
-                📚 Từ này có trong kho offline 200.000 từ. Phiên âm có thể xem và luyện phát âm ngay cả khi không có Internet.
-            </div>
+            ${pos.length ? `<div style="margin-top:8px;"><b>🏷️ Từ loại:</b> ${pos.map(x => `<span style="display:inline-block;margin:2px 4px 2px 0;padding:3px 7px;background:#fff;border-radius:6px;">${escapeHTML(x)}</span>`).join('')}</div>` : ''}
+            ${meanings.length ? `<div style="margin-top:10px;padding:10px;background:#e8f5e9;border:1px solid #c8e6c9;border-radius:8px;"><b style="color:#2e7d32;">🇻🇳 Nghĩa tiếng Việt:</b><ol style="margin:6px 0 0 22px;padding:0;">${meanings.map(x => `<li>${escapeHTML(x)}</li>`).join('')}</ol></div>` : '<div style="margin-top:10px;color:#777;">📚 Có IPA trong kho offline; chưa có nghĩa Việt cho mục này.</div>'}
+            ${formRows.length ? `<div style="margin-top:10px;"><b>🌿 Họ từ / dạng liên quan:</b> ${formRows.map(x => `<span style="display:inline-block;margin:3px;padding:4px 7px;background:#fff;border:1px solid #d6e8f5;border-radius:6px;">${escapeHTML(x)}</span>`).join('')}</div>` : ''}
+            <div style="margin-top:10px;color:#667;font-size:.86em;">⚡ ${escapeHTML(V16_DICT_VERSION_LABEL)} · tra cứu offline trước, không phụ thuộc Internet.</div>
             <div id="dict-offline-online-slot" style="margin-top:12px;"></div>
         </div>`;
 }
@@ -1692,10 +1712,16 @@ window.lookupWord = async function(requestedWord = '') {
         return;
     }
 
-    // Nếu học sinh tra một dạng đã biến đổi, tự nhận diện từ gốc:
-    // went/gone -> go, closed -> close, studied -> study...
-    // nhưng vẫn giữ nguyên dạng học sinh vừa nhập ở ô tìm kiếm.
-    const verbInfo = dictResolveBaseForm(requested);
+    // Ưu tiên quan hệ biến thể đã có sẵn trong dictionary offline.
+    // Ví dụ: loved -> love, succeeded -> succeed, ran -> run.
+    // Chỉ dùng bộ resolver cũ khi offline dictionary không có quan hệ này.
+    const offlineRequestedEntry = await getOfflineDictionaryEntry(requested).catch(() => null);
+    const offlineRequestedRecords = dictOfflineRecords(offlineRequestedEntry);
+    const offlineBase = offlineRequestedRecords[0]?.base && offlineRequestedRecords[0].base !== requested
+        ? dictV11NormalizeWord(offlineRequestedRecords[0].base) : '';
+    const verbInfo = offlineBase
+        ? {base: offlineBase, v1: offlineBase, matched: requested, matchedType: 'dạng biến đổi', resolverType: 'offline-dictionary'}
+        : dictResolveBaseForm(requested);
     const word = verbInfo ? dictV11NormalizeWord(verbInfo.base || verbInfo.v1) : requested;
     const baseFormNotice = dictV31BuildBaseFormNotice(requested, verbInfo);
 
@@ -1714,13 +1740,14 @@ window.lookupWord = async function(requestedWord = '') {
     const controller = new AbortController();
     AppState.dictionaryAbortController = controller;
 
-    // Offline-first: nếu tra went/gone thì kho và API đều được tra theo V1 = go.
-    const offlineEntry = await getOffline50KEntry(word);
+    // Offline-first: ưu tiên đúng dạng đang nhập để lấy IPA/POS; nếu là biến thể
+    // thì entry đã chứa base + họ từ. Chỉ fallback về base nếu exact form không có.
+    const offlineEntry = offlineRequestedEntry || await getOfflineDictionaryEntry(word);
     if (offlineEntry) {
-        showResult(buildOffline10KHTML(word, offlineEntry));
+        showResult(buildOffline10KHTML(requested, offlineEntry));
         const offlineMeta = document.createElement('div');
         offlineMeta.className = 'dict-v11-meta';
-        offlineMeta.innerHTML = `<span class="cache">⚡ Offline 200K · ${window.OFFLINE_DICTIONARY_50K_COUNT || 50000} từ</span>`;
+        offlineMeta.innerHTML = `<span class="cache">⚡ Offline 200K · ${window.OFFLINE_DICTIONARY_50K_COUNT || V16_DICT_COUNT} từ</span>`;
         resultBox.prepend(offlineMeta);
 
         try {
