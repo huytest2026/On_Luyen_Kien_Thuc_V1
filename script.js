@@ -4622,19 +4622,72 @@ window.closeStudentResults = function(){ const p=document.getElementById('studen
 
 window.practiceWeakTopic = function(subject, topic) {
     if (!subject || !topic || topic === 'Chưa phân loại') return alert('Chủ đề này chưa đủ thông tin để luyện riêng.');
-    const subjectSelect=document.getElementById('subject-select');
-    if(subjectSelect){ subjectSelect.value=subject; try{window.handleSubjectChange();}catch(e){} }
-    window.ensureSubjectData(subject).then(function(){
-        window.updateTopicList();
-        setTimeout(function(){
-            const boxes=Array.from(document.querySelectorAll('input[name="topic"]'));
-            boxes.forEach(function(cb){ cb.checked=cleanKey(cb.value)===cleanKey(topic); });
-            const selected=boxes.some(function(cb){return cb.checked;});
-            if(!selected) return alert('Không tìm thấy chủ đề này trong quyền hiện tại.');
-            window.closeStudentResults();
-            const start=document.getElementById('start-btn'); if(start) start.click();
-        },250);
-    }).catch(function(e){alert(e.message||e);});
+    const maHS = document.getElementById('student-code') ? document.getElementById('student-code').value.trim() : localStorage.getItem('saved_maHS');
+    if (!maHS) return alert('Vui lòng chọn Mã học sinh trước.');
+
+    const prepareAndStart = function(wrongKeys) {
+        const keySet = new Set((wrongKeys || []).map(function(x){ return cleanKey(String(x || '')); }).filter(Boolean));
+        const subjectItems = (AppState.loadedSubjects && AppState.loadedSubjects[cleanKey(subject)]) ||
+            (AppState.allQuizData || []).filter(function(i){ return cleanKey(i.mon || '') === cleanKey(subject); });
+        let pool = subjectItems.filter(function(i){
+            if (!i || !i.question) return false;
+            if (cleanKey(i.chuDe || i.topic || '') !== cleanKey(topic)) return false;
+            const qKey = String(i._editKey || i.MaCau || i.maCau || i.ID || i.STT || '').trim();
+            return qKey && keySet.has(cleanKey(qKey));
+        });
+
+        // Dự phòng cho dữ liệu lịch sử cũ chưa có khóa câu: đối chiếu nội dung câu hỏi.
+        if (!pool.length && Array.isArray(window._v425WeakPracticeItems)) {
+            const qSet = new Set(window._v425WeakPracticeItems.map(function(x){ return cleanKey(String(x.question || '')); }).filter(Boolean));
+            pool = subjectItems.filter(function(i){ return i && i.question && cleanKey(i.chuDe || i.topic || '') === cleanKey(topic) && qSet.has(cleanKey(i.question)); });
+        }
+        window._v425WeakPracticeItems = null;
+
+        if (!pool.length) return alert('Không còn câu đã sai nào thuộc chủ đề này để luyện. Có thể bạn đã luyện đúng hết các câu trước đó.');
+        pool = pool.slice().sort(function(){ return Math.random() - 0.5; });
+
+        AppState.currentQuizData = pool.map(function(item) {
+            const correctKeys = getCorrectKeys(item);
+            const validKeys = shuffleArray(['a','b','c','d'].filter(function(k){ return item[k] !== ''; }));
+            return { ...item, _shuffledKeys: validKeys, _correctKeys: correctKeys, _weakPractice: true };
+        });
+        AppState.correctCount = 0;
+        AppState.wrongCount = 0;
+        AppState.quizSubmitted = false;
+        AppState.v42ExamActive = false;
+        AppState.v42ExamMeta = null;
+        const startScreen = document.getElementById('start-screen');
+        const quizScreen = document.getElementById('quiz-screen');
+        if (startScreen) startScreen.style.display = 'none';
+        if (quizScreen) quizScreen.style.display = 'block';
+        setQuizActive(true);
+        updateScoreDisplay();
+        window.renderQuiz();
+        window.startTimerTotal(Math.max(5, Math.ceil(pool.length * 60)));
+    };
+
+    // V42.5: lấy chính các câu đang còn sai trên server, không lấy toàn bộ câu của chủ đề.
+    v425ApiCall('weakpractice', {maHS: maHS, subject: subject, topic: topic, days: 365}).then(function(data){
+        if (!data || !data.ok) throw new Error((data && data.message) || 'Không lấy được danh sách câu sai.');
+        window._v425WeakPracticeItems = Array.isArray(data.items) ? data.items : [];
+        if (!Array.isArray(data.keys) || !data.keys.length) {
+            // Nếu server không có dữ liệu, thử kho câu sai cục bộ để tương thích các bài cũ.
+            const localWrong = getStoredWrongQuestions(maHS, subject) || [];
+            const localItems = localWrong.filter(function(w){ return cleanKey(w.chuDe || '') === cleanKey(topic); });
+            if (!localItems.length) return alert('Không còn câu đã sai nào thuộc chủ đề này để luyện.');
+            window._v425WeakPracticeItems = localItems.map(function(w){ return {question:w.question||''}; });
+            return prepareAndStart(localItems.map(function(w){ return w.question || ''; }));
+        }
+        return window.ensureSubjectData(subject).then(function(){ prepareAndStart(data.keys); });
+    }).catch(function(e){
+        // Fallback không làm mất chức năng luyện câu sai cũ nếu API mới chưa được Deploy.
+        const localWrong = getStoredWrongQuestions(maHS, subject) || [];
+        const localItems = localWrong.filter(function(w){ return cleanKey(w.chuDe || '') === cleanKey(topic); });
+        if (!localItems.length) return alert(e.message || e);
+        window._v425WeakPracticeItems = localItems.map(function(w){ return {question:w.question||''}; });
+        try { window.ensureSubjectData(subject).then(function(){ prepareAndStart(localItems.map(function(w){return w.question||'';})); }); }
+        catch(err){ alert(err.message || err); }
+    });
 };
 
 window.toggleQuestionBank = function() {
