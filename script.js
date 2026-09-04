@@ -5147,7 +5147,7 @@ window.startQuiz = function() {
     var params={maHS:(document.getElementById('student-code')||{}).value||localStorage.getItem('saved_maHS')||'',subject:subjectValue,topic:topic,level:(document.getElementById('v426-ai-level')||{}).value||'Trung bình',count:(document.getElementById('v426-ai-count')||{}).value||10,dangBai:(document.getElementById('v426-ai-type')||{}).value||'Trắc nghiệm 4 lựa chọn',custom:(document.getElementById('v426-ai-custom')||{}).value||''};
     window.v426AICall('aigeneratebank',params,90000).then(function(r){
       if(!r||!r.ok)throw new Error((r&&r.message)||'AI không tạo được câu hỏi.');
-      if(status)status.textContent='✅ Đã tạo '+(r.questions||[]).length+' câu hợp lệ. Loại trùng: '+(r.duplicatesRemoved||0)+'. Hãy kiểm tra trước khi lưu.';
+      if(status){var _q=(r.questions||[]).length, _msg='✅ Đã tạo '+_q+' câu đạt kiểm tra.'; if(r.duplicatesRemoved)_msg+=' Loại trùng: '+r.duplicatesRemoved+'.'; if(r.qualityRejected)_msg+=' Loại câu lỗi: '+r.qualityRejected+'.'; if(r.retryCount)_msg+=' Tự tạo bù: '+r.retryCount+' lượt.'; if(r.qualityMessage)_msg+=' ⚠️ '+r.qualityMessage; _msg+=' Hãy kiểm tra trước khi lưu.'; status.textContent=_msg;}
       renderPreview(r);
     }).catch(function(e){if(status)status.textContent='❌ '+e.message;}).finally(function(){if(btn)btn.disabled=false;});
   };
