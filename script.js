@@ -1,4 +1,5 @@
 const API_URL = "https://script.google.com/macros/s/AKfycbxByXvzJFoK6N0jToFqXj1pEMBnGkMyoa7J5r7vEScJTr-ZSOfSw8Wdv8pPg5EyBg/exec";
+
 // ============================================================
 // V32 — SINGLE DICTIONARY ENGINE + PROFESSIONAL DUAL-PRONUNCIATION UI
 // - Chỉ script.js sở hữu window.lookupWord
@@ -2354,6 +2355,16 @@ window.applyV425SubjectQuestions = function(rawQuestions, fromCache, subject) {
     const normalized = (rawQuestions || []).map(function(rawItem) {
         let item = normalizeItem(rawItem);
         if (!item) return null;
+        // V42.5 FIX: dữ liệu tải từ Questions/BT dùng ID (STT) làm khóa sửa đáp án.
+        if (Array.isArray(rawItem) && rawItem.length) {
+            item._source = 'BT';
+            item._editKey = String(rawItem[0] == null ? '' : rawItem[0]).trim();
+            item.ID = item._editKey;
+            item.STT = item._editKey;
+        } else {
+            item._source = 'BT';
+            item._editKey = String(item.ID || item.STT || item.MaCau || item.maCau || '').trim();
+        }
         return item;
     }).filter(function(item) { return item && item.question !== ''; });
 
@@ -2652,8 +2663,9 @@ window.openAnswerFixModal = function(index) {
     if (!window.isBaoAdmin()) { alert('Chức năng sửa đáp án chỉ dành cho Bảo/Bao.'); return; }
     const item = AppState.currentQuizData[index];
     if (!item) return;
-    const maCau = String(item.MaCau || item['Mã câu'] || item.maCau || item.ID || '').trim();
-    if (!maCau) return alert('Câu này chưa có MaCau nên không thể cập nhật an toàn.');
+    const isBT = String(item._source || '').toUpperCase() === 'BT';
+    const editKey = String(isBT ? (item._editKey || item.ID || item.STT || '') : (item.MaCau || item['Mã câu'] || item.maCau || item.ID || '')).trim();
+    if (!editKey) return alert(isBT ? 'Câu BT chưa có ID/STT nên không thể cập nhật.' : 'Câu này chưa có MaCau nên không thể cập nhật an toàn.');
     let modal = document.getElementById('v42-answer-fix-modal');
     if (!modal) {
         modal = document.createElement('div');
@@ -2695,7 +2707,7 @@ window.openAnswerFixModal = function(index) {
         const subject = String(item.mon || item.Mon || document.getElementById('subject-select')?.value || 'Tiếng Anh').trim();
         const maDe = String(item.made || (AppState.v42ExamMeta && AppState.v42ExamMeta.maDe) || '').trim();
         const reason = String(document.getElementById('v42-fix-reason')?.value || '').trim();
-        window.v42UpdateAnswerCall({maHS:maHS,subject:subject,maCau:maCau,newAnswer:selected.join(','),reason:reason,maDe:maDe}).then(function(r){
+        window.v42UpdateAnswerCall({maHS:maHS,subject:subject,source:(isBT ? 'BT' : 'BANK'),maCau:editKey,newAnswer:selected.join(','),reason:reason,maDe:maDe}).then(function(r){
             if (!r || !r.ok) throw new Error((r && r.message) || 'Không cập nhật được.');
             item.correct = r.newAnswer || selected.join(','); item.DapAnDung = item.correct; item._correctKeys = getCorrectKeys(item);
             if (status) status.innerHTML = '<div style="padding:10px;background:#eaf7ee;border:1px solid #b7e1c1;border-radius:8px;color:#146c2e"><b>✅ Đã cập nhật thành công.</b><br>' + escapeHTML(r.oldAnswer || current || '') + ' → <b>' + escapeHTML(r.newAnswer || selected.join(',')) + '</b><br><small>MaCau: ' + escapeHTML(maCau) + '</small></div>';
@@ -3633,7 +3645,11 @@ window.renderQuiz = function() {
         const isMathOrVietnamese = cleanMon.includes('toan') || cleanMon.includes('math') || cleanMon.includes('tiengviet') || cleanMon.includes('tv');
         let speechBtnHtml = isMathOrVietnamese ? '' : '<button type="button" class="speech-btn" onclick="window.speakQuestion(' + index + ')">🔊 Nghe</button>';
 
-        const adminFixHtml = window.isBaoAdmin() ? '<div style="margin-top:12px;padding-top:10px;border-top:1px dashed #ccc;display:flex;justify-content:flex-end;"><button type="button" onclick="window.openAnswerFixModal(' + index + ')" style="padding:9px 13px;border:1px solid #fd7e14;border-radius:8px;background:#fff7ed;color:#b45309;font-weight:bold;cursor:pointer;">🛠️ Sửa đáp án đúng</button></div>' : '';
+        // V42.5 FIX: Bảo/Bao được sửa cả câu ngân hàng và câu BT.
+        // Câu ngân hàng dùng MaCau; câu BT dùng ID/STT.
+        const adminFixIsBT = String(item._source || '').toUpperCase() === 'BT';
+        const adminFixKey = String(adminFixIsBT ? (item._editKey || item.ID || item.STT || '') : (item.MaCau || item['Mã câu'] || item.maCau || item.ID || '')).trim();
+        const adminFixHtml = (window.isBaoAdmin() && adminFixKey) ? '<div style="margin-top:12px;padding-top:10px;border-top:1px dashed #ccc;display:flex;justify-content:flex-end;"><button type="button" onclick="window.openAnswerFixModal(' + index + ')" style="padding:9px 13px;border:1px solid #fd7e14;border-radius:8px;background:#fff7ed;color:#b45309;font-weight:bold;cursor:pointer;">🛠️ Sửa đáp án đúng</button></div>' : '';
         html += '<div class="quiz-card" id="question-card-' + index + '"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;"><div style="font-weight: bold; color: #540606; font-size: 1.1em;">Câu ' + (index + 1) + ':</div>' + speechBtnHtml + '</div><div style="margin-bottom: 15px; font-weight: 600; white-space: pre-line; line-height: 1.6; font-size: 1.1em;">' + escapeHTML(item.question) + '</div>' + bodyHtml + '<div class="explanation-box" id="explanation-' + index + '"><b>💡 Giải thích:</b> ' + escapeHTML(item.explanation || 'Không có giải thích.') + '</div>' + adminFixHtml + '</div>';
     });
 
@@ -4652,6 +4668,8 @@ window.startV42Exam = function(maDe) {
                     level: q.DoKho || q['Độ khó'] || meta.level || '',
                     skill: q.KyNang || q['Kỹ năng'] || meta.skill || ''
                 };
+                item._source = 'BANK';
+                item._editKey = String(q.MaCau || q['Mã câu'] || q.maCau || q.ID || '').trim();
                 Object.assign(item, v424PrepareReadingItem(item));
                 item._correctKeys = getCorrectKeys(item);
                 item._shuffledKeys = shuffleArray(['a','b','c','d'].filter(k => item[k] !== ''));
