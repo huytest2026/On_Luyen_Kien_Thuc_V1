@@ -4609,7 +4609,7 @@ window.renderStudentResults = function(data) {
                     '<td style="padding:8px;border:1px solid #ddd;text-align:center">'+Number(w.wrong||0)+'</td>' +
                     '<td style="padding:8px;border:1px solid #ddd;text-align:center;font-weight:bold;color:'+cls+'">'+rate.toFixed(0)+'%</td>' +
                     '<td style="padding:8px;border:1px solid #ddd;font-weight:bold;color:'+cls+'">'+escapeHTML(label)+'</td>' +
-                    '<td style="padding:8px;border:1px solid #ddd;text-align:center"><button type="button" onclick="window.practiceWeakTopic('+JSON.stringify(String(w.subject||''))+','+JSON.stringify(String(w.topic||''))+')" style="padding:6px 9px;border:0;border-radius:6px;background:#dc3545;color:#fff;font-weight:bold;cursor:pointer">🎯 Luyện</button></td>' +
+                    '<td style="padding:8px;border:1px solid #ddd;text-align:center"><button type="button" onclick="window.practiceWeakTopic(' + JSON.stringify(String(w.subject||'')).replace(/"/g,'&quot;') + ',' + JSON.stringify(String(w.topic||'')).replace(/"/g,'&quot;') + ')" style="padding:6px 9px;border:0;border-radius:6px;background:#dc3545;color:#fff;font-weight:bold;cursor:pointer">🎯 Luyện</button></td>' +
                     '</tr>';
             });
             html += '</tbody></table></div>';
