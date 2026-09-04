@@ -5051,8 +5051,8 @@ window.startQuiz = function() {
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h2 style="margin:0;color:#0d6efd">🤖 AI tạo ngân hàng câu hỏi</h2><button type="button" onclick="window.closeAIBankGenerator()" style="padding:8px 12px;border:0;border-radius:8px;background:#6c757d;color:#fff;font-weight:bold">✕ Đóng</button></div>'+ 
         '<div style="margin-top:8px;padding:10px;background:#eef6ff;border-radius:8px;color:#174a7e">AI chỉ tạo <b>bản nháp</b>. Bảo/Bao xem trước và chọn câu đạt rồi mới lưu vào ngân hàng.</div>'+ 
         '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:12px">'+
-          '<label>Môn<select id="v426-ai-subject" style="width:100%;padding:10px;box-sizing:border-box"><option>Tiếng Anh</option><option>Toán</option></select></label>'+ 
-          '<label>Chủ đề<input id="v426-ai-topic" placeholder="VD: Preposition (giới từ)" style="width:100%;padding:10px;box-sizing:border-box"></label>'+ 
+          '<label>Môn<select id="v426-ai-subject" style="width:100%;padding:10px;box-sizing:border-box"><option value="Tiếng Anh">Tiếng Anh</option><option value="Toán">Toán</option></select></label>'+ 
+          '<label>Chủ đề<select id="v426-ai-topic" style="width:100%;padding:10px;box-sizing:border-box"><option value="">⏳ Đang tải chủ đề...</option></select></label>'+ 
           '<label>Độ khó<select id="v426-ai-level" style="width:100%;padding:10px;box-sizing:border-box"><option>Dễ</option><option selected>Trung bình</option><option>Khó</option><option>Hỗn hợp</option></select></label>'+ 
           '<label>Số câu<select id="v426-ai-count" style="width:100%;padding:10px;box-sizing:border-box"><option>10</option><option>20</option><option>50</option><option>100</option></select></label>'+ 
         '</div>'+ 
@@ -5063,6 +5063,12 @@ window.startQuiz = function() {
         '<div id="v426-ai-preview" style="margin-top:10px"></div>'+ 
       '</div>';
       document.body.appendChild(m);
+      var aiSub=document.getElementById('v426-ai-subject');
+      if(aiSub) aiSub.onchange=function(){
+        var st=document.getElementById('v426-ai-status');
+        if(st)st.textContent='⏳ Đang tải danh sách chủ đề theo môn...';
+        window.refreshAIBankTopics(aiSub.value,false).then(function(){if(st)st.textContent='Sẵn sàng. Hãy chọn chủ đề rồi tạo câu hỏi.';}).catch(function(e){if(st)st.textContent='❌ '+(e.message||e);});
+      };
     }
   };
 
@@ -5074,10 +5080,36 @@ window.startQuiz = function() {
     var s=document.getElementById('v426-ai-subject');
     if(s) s.value=(document.getElementById('subject-select')||{}).value||'Tiếng Anh';
     var t=document.getElementById('v426-ai-topic');
-    if(t && !t.value){var st=document.getElementById('topic-select'); if(st&&st.value)t.value=st.value;}
     var p=document.getElementById('v426-ai-preview');if(p)p.innerHTML='';
-    var status=document.getElementById('v426-ai-status');if(status)status.textContent='Sẵn sàng.';
+    var status=document.getElementById('v426-ai-status');if(status)status.textContent='⏳ Đang tải danh sách chủ đề theo môn...';
+    window.refreshAIBankTopics(s ? s.value : 'Tiếng Anh', false).then(function(){
+      if(status)status.textContent='Sẵn sàng. Hãy chọn chủ đề rồi tạo câu hỏi.';
+    }).catch(function(e){if(status)status.textContent='❌ '+(e.message||e);});
   };
+  window.v426AITopics={};
+  window.refreshAIBankTopics=function(subject, keepSelection){
+    subject=String(subject||'Tiếng Anh').trim();
+    var sel=document.getElementById('v426-ai-topic');
+    if(!sel) return Promise.resolve([]);
+    var old=keepSelection?String(sel.value||''):'';
+    sel.disabled=true;
+    sel.innerHTML='<option value="">⏳ Đang tải chủ đề...</option>';
+    var maHS=(document.getElementById('student-code')||{}).value||localStorage.getItem('saved_maHS')||'';
+    return window.v426AICall('getbanktopics',{maHS:maHS,subject:subject},30000).then(function(r){
+      if(!r||!r.ok)throw new Error((r&&r.message)||'Không tải được danh sách chủ đề.');
+      var topics=Array.isArray(r.topics)?r.topics:[];
+      window.v426AITopics[subject]=topics.slice();
+      var html='<option value="">-- Chọn chủ đề --</option><option value="__ALL__">📚 Tất cả chủ đề</option>';
+      html+=topics.map(function(v){return '<option value="'+escapeHTML(v)+'">'+escapeHTML(v)+'</option>';}).join('');
+      sel.innerHTML=html;
+      sel.disabled=false;
+      if(old && topics.indexOf(old)>=0)sel.value=old;
+      else {var st=document.getElementById('topic-select');if(st&&st.value&&topics.indexOf(st.value)>=0)sel.value=st.value;}
+      if(!topics.length)sel.innerHTML='<option value="">(Chưa có chủ đề trong ngân hàng)</option>';
+      return topics;
+    }).catch(function(e){sel.disabled=false;sel.innerHTML='<option value="">❌ Không tải được chủ đề</option>';throw e;});
+  };
+
   window.closeAIBankGenerator=function(){var m=document.getElementById('v426-ai-bank-modal');if(m)m.style.display='none';};
 
   function renderPreview(data){
@@ -5101,12 +5133,18 @@ window.startQuiz = function() {
 
   window.generateAIBank=function(){
     if(!adminOnly())return;
-    var topic=((document.getElementById('v426-ai-topic')||{}).value||'').trim();
-    if(!topic){alert('Vui lòng nhập chủ đề.');return;}
+    var topicValue=((document.getElementById('v426-ai-topic')||{}).value||'').trim();
+    var subjectValue=((document.getElementById('v426-ai-subject')||{}).value||'Tiếng Anh').trim();
+    if(!topicValue){alert('Vui lòng chọn chủ đề.');return;}
+    var topic=topicValue;
+    if(topicValue==='__ALL__'){
+      var allTopics=window.v426AITopics[subjectValue]||[];
+      topic=allTopics.length?'Tổng hợp các chủ đề: '+allTopics.join(', '):'Tất cả chủ đề';
+    }
     var btn=document.getElementById('v426-ai-generate'), status=document.getElementById('v426-ai-status');
     if(btn)btn.disabled=true;
     if(status)status.textContent='⏳ AI đang tạo câu hỏi và tự kiểm tra...';
-    var params={maHS:(document.getElementById('student-code')||{}).value||localStorage.getItem('saved_maHS')||'',subject:(document.getElementById('v426-ai-subject')||{}).value||'Tiếng Anh',topic:topic,level:(document.getElementById('v426-ai-level')||{}).value||'Trung bình',count:(document.getElementById('v426-ai-count')||{}).value||10,dangBai:(document.getElementById('v426-ai-type')||{}).value||'Trắc nghiệm 4 lựa chọn',custom:(document.getElementById('v426-ai-custom')||{}).value||''};
+    var params={maHS:(document.getElementById('student-code')||{}).value||localStorage.getItem('saved_maHS')||'',subject:subjectValue,topic:topic,level:(document.getElementById('v426-ai-level')||{}).value||'Trung bình',count:(document.getElementById('v426-ai-count')||{}).value||10,dangBai:(document.getElementById('v426-ai-type')||{}).value||'Trắc nghiệm 4 lựa chọn',custom:(document.getElementById('v426-ai-custom')||{}).value||''};
     window.v426AICall('aigeneratebank',params,90000).then(function(r){
       if(!r||!r.ok)throw new Error((r&&r.message)||'AI không tạo được câu hỏi.');
       if(status)status.textContent='✅ Đã tạo '+(r.questions||[]).length+' câu hợp lệ. Loại trùng: '+(r.duplicatesRemoved||0)+'. Hãy kiểm tra trước khi lưu.';
