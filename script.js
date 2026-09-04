@@ -1,5 +1,4 @@
 const API_URL = "https://script.google.com/macros/s/AKfycbxByXvzJFoK6N0jToFqXj1pEMBnGkMyoa7J5r7vEScJTr-ZSOfSw8Wdv8pPg5EyBg/exec";
-
 // ============================================================
 // V32 — SINGLE DICTIONARY ENGINE + PROFESSIONAL DUAL-PRONUNCIATION UI
 // - Chỉ script.js sở hữu window.lookupWord
@@ -4552,20 +4551,39 @@ window.renderStudentResults = function(data) {
         [1,7,30].map(function(d){ return '<button type="button" onclick="window.openStudentResults(' + d + ')" style="padding:8px 12px;border:1px solid #198754;border-radius:7px;background:' + (d===days?'#198754':'#fff') + ';color:' + (d===days?'#fff':'#198754') + ';font-weight:bold;cursor:pointer">' + (d===1?'📅 Hôm nay':d+' ngày qua') + '</button>'; }).join('') +
         '</div>';
     html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:15px">' +
-        '<div style="background:#eef6ff;padding:12px;border-radius:9px;text-align:center"><b>' + (s.tests||0) + '</b><br>Bài làm</div>' +
-        '<div style="background:#eaf7ee;padding:12px;border-radius:9px;text-align:center"><b>' + (s.questions||0) + '</b><br>Tổng câu</div>' +
-        '<div style="background:#eaf7ee;padding:12px;border-radius:9px;text-align:center"><b>' + (s.correct||0) + '</b><br>Đúng</div>' +
-        '<div style="background:#fff0f0;padding:12px;border-radius:9px;text-align:center"><b>' + (s.wrong||0) + '</b><br>Sai</div>' +
-        '<div style="background:#fff8df;padding:12px;border-radius:9px;text-align:center"><b>' + Number(s.avgScore||0).toFixed(2) + '</b><br>Điểm TB</div>' +
+        '<div style="background:#eef6ff;padding:12px;border-radius:9px;text-align:center"><b style="font-size:1.25em">' + (s.tests||0) + '</b><br>Bài làm</div>' +
+        '<div style="background:#eaf7ee;padding:12px;border-radius:9px;text-align:center"><b style="font-size:1.25em">' + (s.questions||0) + '</b><br>Tổng câu</div>' +
+        '<div style="background:#eaf7ee;padding:12px;border-radius:9px;text-align:center"><b style="font-size:1.25em">' + (s.correct||0) + '</b><br>Đúng</div>' +
+        '<div style="background:#fff0f0;padding:12px;border-radius:9px;text-align:center"><b style="font-size:1.25em">' + (s.wrong||0) + '</b><br>Sai</div>' +
+        '<div style="background:#fff8df;padding:12px;border-radius:9px;text-align:center"><b style="font-size:1.25em">' + Number(s.avgScore||0).toFixed(2) + '</b><br>Điểm TB</div>' +
         '</div>';
     html += '<h3 style="color:#540606;margin:10px 0">📋 Các bài đã làm (' + escapeHTML(String(data.from||'')) + (data.from!==data.to?' → '+escapeHTML(String(data.to||'')):'') + ')</h3>';
-    if (!attempts.length) html += '<div style="padding:12px;background:#f8f9fa;border-radius:8px;color:#666">Chưa có bài kiểm tra trong khoảng thời gian này.</div>';
-    else {
-        html += '<div style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:.95em"><thead><tr style="background:#f1f3f5"><th style="padding:8px;border:1px solid #ddd">Thời gian</th><th style="padding:8px;border:1px solid #ddd">Môn</th><th style="padding:8px;border:1px solid #ddd">Mã đề</th><th style="padding:8px;border:1px solid #ddd">Điểm</th></tr></thead><tbody>';
+    if (!attempts.length) {
+        html += '<div style="padding:12px;background:#f8f9fa;border-radius:8px;color:#666">Chưa có bài kiểm tra trong khoảng thời gian này.</div>';
+    } else {
+        html += '<div style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:.95em"><thead><tr style="background:#f1f3f5">' +
+            '<th style="padding:8px;border:1px solid #ddd">Thời gian</th>' +
+            '<th style="padding:8px;border:1px solid #ddd">Môn</th>' +
+            '<th style="padding:8px;border:1px solid #ddd">Mã đề</th>' +
+            '<th style="padding:8px;border:1px solid #ddd">Số câu</th>' +
+            '<th style="padding:8px;border:1px solid #ddd">Đúng</th>' +
+            '<th style="padding:8px;border:1px solid #ddd">Sai</th>' +
+            '<th style="padding:8px;border:1px solid #ddd">Điểm</th>' +
+            '</tr></thead><tbody>';
         attempts.forEach(function(a){
-            const d=new Date(Number(a.time||0)); const time=d.getTime()?d.toLocaleString('vi-VN'):String(a.date||'');
-            const m=String(a.topic||'').match(/Mã đề:\s*([^\s]+.*)$/i); const made=m?m[1]:'';
-            html += '<tr><td style="padding:8px;border:1px solid #ddd">'+escapeHTML(time)+'</td><td style="padding:8px;border:1px solid #ddd">'+escapeHTML(a.subject||'')+'</td><td style="padding:8px;border:1px solid #ddd">'+escapeHTML(made||'—')+'</td><td style="padding:8px;border:1px solid #ddd;font-weight:bold">'+Number(a.score||0).toFixed(1)+'</td></tr>';
+            const d=new Date(Number(a.time||0));
+            const time=d.getTime()?d.toLocaleString('vi-VN'):String(a.date||'');
+            const made=String(a.made||'').replace(/^Mã đề\s*[:：]\s*/i,'').trim();
+            const score=Number(a.score||0);
+            html += '<tr>' +
+                '<td style="padding:8px;border:1px solid #ddd;white-space:nowrap">'+escapeHTML(time)+'</td>' +
+                '<td style="padding:8px;border:1px solid #ddd">'+escapeHTML(a.subject||'')+'</td>' +
+                '<td style="padding:8px;border:1px solid #ddd">'+escapeHTML(made||'—')+'</td>' +
+                '<td style="padding:8px;border:1px solid #ddd;text-align:center">'+(Number(a.questions||0)||'—')+'</td>' +
+                '<td style="padding:8px;border:1px solid #ddd;text-align:center;color:#198754;font-weight:bold">'+(Number(a.correct||0)||'—')+'</td>' +
+                '<td style="padding:8px;border:1px solid #ddd;text-align:center;color:#b00020;font-weight:bold">'+(Number(a.wrong||0)||'—')+'</td>' +
+                '<td style="padding:8px;border:1px solid #ddd;text-align:center;font-weight:bold">'+score.toFixed(1)+'</td>' +
+                '</tr>';
         });
         html += '</tbody></table></div>';
     }
@@ -4573,12 +4591,29 @@ window.renderStudentResults = function(data) {
     if (!weaknesses.length) {
         html += '<div style="padding:12px;background:#eaf7ee;border-radius:8px;color:#198754;font-weight:bold">🎉 Chưa đủ dữ liệu chi tiết để xác định điểm yếu. Hãy làm thêm bài để hệ thống phân tích.</div>';
     } else {
-        html += '<div style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:.95em"><thead><tr style="background:#f1f3f5"><th style="padding:8px;border:1px solid #ddd">Môn</th><th style="padding:8px;border:1px solid #ddd">Chủ đề</th><th style="padding:8px;border:1px solid #ddd">Đã làm</th><th style="padding:8px;border:1px solid #ddd">Sai</th><th style="padding:8px;border:1px solid #ddd">% sai</th><th style="padding:8px;border:1px solid #ddd">Đánh giá</th><th style="padding:8px;border:1px solid #ddd">Luyện</th></tr></thead><tbody>';
-        weaknesses.forEach(function(w){
-            const cls=w.wrongRate>=50?'#b00020':(w.wrongRate>=30?'#d97706':(w.wrongRate>=15?'#8a6d00':'#198754'));
-            html += '<tr><td style="padding:8px;border:1px solid #ddd">'+escapeHTML(w.subject||'')+'</td><td style="padding:8px;border:1px solid #ddd">'+escapeHTML(w.topic||'Chưa phân loại')+'</td><td style="padding:8px;border:1px solid #ddd;text-align:center">'+w.total+'</td><td style="padding:8px;border:1px solid #ddd;text-align:center">'+w.wrong+'</td><td style="padding:8px;border:1px solid #ddd;text-align:center;font-weight:bold;color:'+cls+'">'+Number(w.wrongRate||0).toFixed(1)+'%</td><td style="padding:8px;border:1px solid #ddd;font-weight:bold;color:'+cls+'">'+escapeHTML(w.level||'')+'</td><td style="padding:8px;border:1px solid #ddd"><button type="button" onclick="window.practiceWeakTopic('+JSON.stringify(String(w.subject||''))+','+JSON.stringify(String(w.topic||''))+')" style="padding:6px 9px;border:0;border-radius:6px;background:#dc3545;color:#fff;font-weight:bold;cursor:pointer">Luyện</button></td></tr>';
+        // Hiển thị theo từng môn giống mẫu: mỗi môn có một tiêu đề riêng.
+        var groups={};
+        weaknesses.forEach(function(w){ var key=String(w.subject||'Không rõ'); (groups[key]||(groups[key]=[])).push(w); });
+        Object.keys(groups).forEach(function(subject){
+            html += '<div style="margin:12px 0 6px;font-size:1.08em;font-weight:bold;color:#198754">'+escapeHTML(subject)+'</div>';
+            html += '<div style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:.95em;margin-bottom:12px"><thead><tr style="background:#f1f3f5">' +
+                '<th style="padding:8px;border:1px solid #ddd">Chủ đề</th><th style="padding:8px;border:1px solid #ddd">Đã làm</th><th style="padding:8px;border:1px solid #ddd">Sai</th><th style="padding:8px;border:1px solid #ddd">Tỷ lệ sai</th><th style="padding:8px;border:1px solid #ddd">Đánh giá</th><th style="padding:8px;border:1px solid #ddd">Luyện</th>' +
+                '</tr></thead><tbody>';
+            groups[subject].forEach(function(w){
+                const rate=Number(w.wrongRate||0);
+                const cls=rate>=50?'#dc2626':(rate>=30?'#f97316':(rate>=15?'#eab308':'#16a34a'));
+                const label=rate>=50?'Rất yếu':(rate>=30?'Cần cải thiện':(rate>=15?'Khá':'Tốt'));
+                html += '<tr>' +
+                    '<td style="padding:8px;border:1px solid #ddd"><span style="display:inline-block;width:16px;height:16px;background:'+cls+';border:1px solid #222;vertical-align:-3px;margin-right:8px"></span>'+escapeHTML(w.topic||'Chưa phân loại')+'</td>' +
+                    '<td style="padding:8px;border:1px solid #ddd;text-align:center">'+Number(w.total||0)+'</td>' +
+                    '<td style="padding:8px;border:1px solid #ddd;text-align:center">'+Number(w.wrong||0)+'</td>' +
+                    '<td style="padding:8px;border:1px solid #ddd;text-align:center;font-weight:bold;color:'+cls+'">'+rate.toFixed(0)+'%</td>' +
+                    '<td style="padding:8px;border:1px solid #ddd;font-weight:bold;color:'+cls+'">'+escapeHTML(label)+'</td>' +
+                    '<td style="padding:8px;border:1px solid #ddd;text-align:center"><button type="button" onclick="window.practiceWeakTopic('+JSON.stringify(String(w.subject||''))+','+JSON.stringify(String(w.topic||''))+')" style="padding:6px 9px;border:0;border-radius:6px;background:#dc3545;color:#fff;font-weight:bold;cursor:pointer">🎯 Luyện</button></td>' +
+                    '</tr>';
+            });
+            html += '</tbody></table></div>';
         });
-        html += '</tbody></table></div>';
     }
     box.innerHTML = html;
 };
