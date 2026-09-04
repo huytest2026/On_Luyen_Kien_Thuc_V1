@@ -2918,7 +2918,29 @@ function getDefaultSubjectForStudent(allowedSubjects) {
     return english || ((allowedSubjects && allowedSubjects[0]) ? allowedSubjects[0] : '');
 }
 
+window.ensureStudentResultsUI = function() {
+    if (document.getElementById('btn-student-results') && document.getElementById('student-results-panel')) return;
+    const leaderboard = document.getElementById('leaderboard');
+    if (!leaderboard || !leaderboard.parentNode) return;
+    if (!document.getElementById('btn-student-results')) {
+        const btn = document.createElement('button');
+        btn.id = 'btn-student-results'; btn.type = 'button';
+        btn.textContent = '📊 Xem kết quả kiểm tra hôm nay & điểm yếu';
+        btn.style.cssText = 'width:100%;padding:13px;margin-top:12px;background:#198754;color:#fff;border:0;border-radius:8px;font-weight:bold;font-size:1.08em;cursor:pointer;';
+        btn.onclick = function(){ window.openStudentResults(1); };
+        leaderboard.parentNode.insertBefore(btn, leaderboard.nextSibling);
+    }
+    if (!document.getElementById('student-results-panel')) {
+        const panel = document.createElement('div');
+        panel.id = 'student-results-panel';
+        panel.style.cssText = 'display:none;margin-top:15px;padding:16px;border:2px solid #198754;border-radius:10px;background:#fff;';
+        panel.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;"><h3 style="margin:0;color:#198754;">📊 Kết quả kiểm tra & điểm yếu</h3><button type="button" onclick="window.closeStudentResults()" style="padding:7px 11px;border:0;border-radius:7px;background:#6c757d;color:#fff;font-weight:bold;cursor:pointer;">✕ Đóng</button></div><div id="student-results-content" style="margin-top:12px;"></div>';
+        leaderboard.parentNode.insertBefore(panel, (document.getElementById('btn-student-results') || leaderboard).nextSibling);
+    }
+};
+
 window.initInterface = function() {
+    try { window.ensureStudentResultsUI(); } catch(e) {}
     const preferredStudent = localStorage.getItem('saved_maHS') || '';
     const selectedStudent = window.updateStudentList ? window.updateStudentList(preferredStudent) : preferredStudent;
     const subjectSelect = document.getElementById('subject-select');
@@ -3888,7 +3910,10 @@ window.submitQuiz = function() {
             question: item.question || ('Câu ' + (index + 1)),
             userAnswer: userAnswerText,
             correctAnswer: correctAnswerText,
-            isCorrect: isCorrect
+            isCorrect: isCorrect,
+            topic: String(item.chuDe || item.topic || '').trim(),
+            source: String(item._source || 'BT').trim(),
+            questionKey: String(item._editKey || item.MaCau || item.ID || item.STT || '').trim()
         };
     });
 
@@ -4494,6 +4519,87 @@ window.renderQuestionBank = function() {
             (sk ? '<span style="background:#eaf7ee;padding:2px 7px;border-radius:10px;">' + escapeHTML(sk) + '</span>' : '') + '</div>' +
             '<div style="margin-top:5px;">' + escapeHTML(question) + '</div></div>';
     }).join('');
+};
+
+// ============================================================
+// V42.5 — KẾT QUẢ HÔM NAY & PHÂN TÍCH ĐIỂM YẾU
+// ============================================================
+window.openStudentResults = function(days) {
+    const panel = document.getElementById('student-results-panel');
+    const box = document.getElementById('student-results-content');
+    const student = document.getElementById('student-code');
+    const maHS = student ? String(student.value || '').trim() : String(localStorage.getItem('saved_maHS') || '').trim();
+    if (!maHS) return alert('Vui lòng chọn Mã học sinh trước.');
+    if (!panel || !box) return;
+    panel.style.display = 'block';
+    box.innerHTML = '<div style="padding:15px;text-align:center;color:#666">⏳ Đang tải kết quả...</div>';
+    v425ApiCall('studentresults', { maHS: maHS, days: Number(days || 1) }).then(function(data) {
+        if (!data || !data.ok) throw new Error((data && data.message) || 'Không tải được kết quả.');
+        window.renderStudentResults(data);
+    }).catch(function(err) {
+        box.innerHTML = '<div style="padding:15px;color:#b00020">❌ ' + escapeHTML(err.message || err) + '</div>';
+    });
+};
+
+window.renderStudentResults = function(data) {
+    const box = document.getElementById('student-results-content');
+    if (!box) return;
+    const s = data.summary || {};
+    const attempts = Array.isArray(data.attempts) ? data.attempts : [];
+    const weaknesses = Array.isArray(data.weaknesses) ? data.weaknesses : [];
+    const days = Number(data.days || 1);
+    let html = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">' +
+        [1,7,30].map(function(d){ return '<button type="button" onclick="window.openStudentResults(' + d + ')" style="padding:8px 12px;border:1px solid #198754;border-radius:7px;background:' + (d===days?'#198754':'#fff') + ';color:' + (d===days?'#fff':'#198754') + ';font-weight:bold;cursor:pointer">' + (d===1?'📅 Hôm nay':d+' ngày qua') + '</button>'; }).join('') +
+        '</div>';
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:15px">' +
+        '<div style="background:#eef6ff;padding:12px;border-radius:9px;text-align:center"><b>' + (s.tests||0) + '</b><br>Bài làm</div>' +
+        '<div style="background:#eaf7ee;padding:12px;border-radius:9px;text-align:center"><b>' + (s.questions||0) + '</b><br>Tổng câu</div>' +
+        '<div style="background:#eaf7ee;padding:12px;border-radius:9px;text-align:center"><b>' + (s.correct||0) + '</b><br>Đúng</div>' +
+        '<div style="background:#fff0f0;padding:12px;border-radius:9px;text-align:center"><b>' + (s.wrong||0) + '</b><br>Sai</div>' +
+        '<div style="background:#fff8df;padding:12px;border-radius:9px;text-align:center"><b>' + Number(s.avgScore||0).toFixed(2) + '</b><br>Điểm TB</div>' +
+        '</div>';
+    html += '<h3 style="color:#540606;margin:10px 0">📋 Các bài đã làm (' + escapeHTML(String(data.from||'')) + (data.from!==data.to?' → '+escapeHTML(String(data.to||'')):'') + ')</h3>';
+    if (!attempts.length) html += '<div style="padding:12px;background:#f8f9fa;border-radius:8px;color:#666">Chưa có bài kiểm tra trong khoảng thời gian này.</div>';
+    else {
+        html += '<div style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:.95em"><thead><tr style="background:#f1f3f5"><th style="padding:8px;border:1px solid #ddd">Thời gian</th><th style="padding:8px;border:1px solid #ddd">Môn</th><th style="padding:8px;border:1px solid #ddd">Mã đề</th><th style="padding:8px;border:1px solid #ddd">Điểm</th></tr></thead><tbody>';
+        attempts.forEach(function(a){
+            const d=new Date(Number(a.time||0)); const time=d.getTime()?d.toLocaleString('vi-VN'):String(a.date||'');
+            const m=String(a.topic||'').match(/Mã đề:\s*([^\s]+.*)$/i); const made=m?m[1]:'';
+            html += '<tr><td style="padding:8px;border:1px solid #ddd">'+escapeHTML(time)+'</td><td style="padding:8px;border:1px solid #ddd">'+escapeHTML(a.subject||'')+'</td><td style="padding:8px;border:1px solid #ddd">'+escapeHTML(made||'—')+'</td><td style="padding:8px;border:1px solid #ddd;font-weight:bold">'+Number(a.score||0).toFixed(1)+'</td></tr>';
+        });
+        html += '</tbody></table></div>';
+    }
+    html += '<h3 style="color:#540606;margin:18px 0 8px">🎯 Phân tích điểm còn yếu</h3>';
+    if (!weaknesses.length) {
+        html += '<div style="padding:12px;background:#eaf7ee;border-radius:8px;color:#198754;font-weight:bold">🎉 Chưa đủ dữ liệu chi tiết để xác định điểm yếu. Hãy làm thêm bài để hệ thống phân tích.</div>';
+    } else {
+        html += '<div style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:.95em"><thead><tr style="background:#f1f3f5"><th style="padding:8px;border:1px solid #ddd">Môn</th><th style="padding:8px;border:1px solid #ddd">Chủ đề</th><th style="padding:8px;border:1px solid #ddd">Đã làm</th><th style="padding:8px;border:1px solid #ddd">Sai</th><th style="padding:8px;border:1px solid #ddd">% sai</th><th style="padding:8px;border:1px solid #ddd">Đánh giá</th><th style="padding:8px;border:1px solid #ddd">Luyện</th></tr></thead><tbody>';
+        weaknesses.forEach(function(w){
+            const cls=w.wrongRate>=50?'#b00020':(w.wrongRate>=30?'#d97706':(w.wrongRate>=15?'#8a6d00':'#198754'));
+            html += '<tr><td style="padding:8px;border:1px solid #ddd">'+escapeHTML(w.subject||'')+'</td><td style="padding:8px;border:1px solid #ddd">'+escapeHTML(w.topic||'Chưa phân loại')+'</td><td style="padding:8px;border:1px solid #ddd;text-align:center">'+w.total+'</td><td style="padding:8px;border:1px solid #ddd;text-align:center">'+w.wrong+'</td><td style="padding:8px;border:1px solid #ddd;text-align:center;font-weight:bold;color:'+cls+'">'+Number(w.wrongRate||0).toFixed(1)+'%</td><td style="padding:8px;border:1px solid #ddd;font-weight:bold;color:'+cls+'">'+escapeHTML(w.level||'')+'</td><td style="padding:8px;border:1px solid #ddd"><button type="button" onclick="window.practiceWeakTopic('+JSON.stringify(String(w.subject||''))+','+JSON.stringify(String(w.topic||''))+')" style="padding:6px 9px;border:0;border-radius:6px;background:#dc3545;color:#fff;font-weight:bold;cursor:pointer">Luyện</button></td></tr>';
+        });
+        html += '</tbody></table></div>';
+    }
+    box.innerHTML = html;
+};
+
+window.closeStudentResults = function(){ const p=document.getElementById('student-results-panel'); if(p) p.style.display='none'; };
+
+window.practiceWeakTopic = function(subject, topic) {
+    if (!subject || !topic || topic === 'Chưa phân loại') return alert('Chủ đề này chưa đủ thông tin để luyện riêng.');
+    const subjectSelect=document.getElementById('subject-select');
+    if(subjectSelect){ subjectSelect.value=subject; try{window.handleSubjectChange();}catch(e){} }
+    window.ensureSubjectData(subject).then(function(){
+        window.updateTopicList();
+        setTimeout(function(){
+            const boxes=Array.from(document.querySelectorAll('input[name="topic"]'));
+            boxes.forEach(function(cb){ cb.checked=cleanKey(cb.value)===cleanKey(topic); });
+            const selected=boxes.some(function(cb){return cb.checked;});
+            if(!selected) return alert('Không tìm thấy chủ đề này trong quyền hiện tại.');
+            window.closeStudentResults();
+            const start=document.getElementById('start-btn'); if(start) start.click();
+        },250);
+    }).catch(function(e){alert(e.message||e);});
 };
 
 window.toggleQuestionBank = function() {
