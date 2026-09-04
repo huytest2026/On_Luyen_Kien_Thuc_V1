@@ -2682,7 +2682,8 @@ window.openAnswerFixModal = function(index) {
     const currentKeys = item._correctKeys || getCorrectKeys(item);
     const current = currentKeys.map(function(k){return k.toUpperCase();}).join(',') || String(item.correct || '').toUpperCase();
     const multi = currentKeys.length > 1;
-    let html = '<div style="background:#f6f8fa;padding:10px;border-radius:8px;margin-bottom:12px"><b>MaCau:</b> ' + escapeHTML(maCau) + '<br><b>Đáp án hiện tại:</b> <span style="color:#b00020;font-weight:bold">' + escapeHTML(current || 'Chưa xác định') + '</span></div>';
+    const editKeyLabel = isBT ? 'ID/STT' : 'MaCau';
+    let html = '<div style="background:#f6f8fa;padding:10px;border-radius:8px;margin-bottom:12px"><b>' + editKeyLabel + ':</b> ' + escapeHTML(editKey) + '<br><b>Đáp án hiện tại:</b> <span style="color:#b00020;font-weight:bold">' + escapeHTML(current || 'Chưa xác định') + '</span></div>';
     html += '<div style="margin-bottom:10px;font-weight:bold">' + (multi ? 'Chọn các đáp án đúng:' : 'Chọn đáp án đúng:') + '</div>';
     html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px">';
     opts.forEach(function(k){
@@ -2710,7 +2711,7 @@ window.openAnswerFixModal = function(index) {
         window.v42UpdateAnswerCall({maHS:maHS,subject:subject,source:(isBT ? 'BT' : 'BANK'),maCau:editKey,newAnswer:selected.join(','),reason:reason,maDe:maDe}).then(function(r){
             if (!r || !r.ok) throw new Error((r && r.message) || 'Không cập nhật được.');
             item.correct = r.newAnswer || selected.join(','); item.DapAnDung = item.correct; item._correctKeys = getCorrectKeys(item);
-            if (status) status.innerHTML = '<div style="padding:10px;background:#eaf7ee;border:1px solid #b7e1c1;border-radius:8px;color:#146c2e"><b>✅ Đã cập nhật thành công.</b><br>' + escapeHTML(r.oldAnswer || current || '') + ' → <b>' + escapeHTML(r.newAnswer || selected.join(',')) + '</b><br><small>MaCau: ' + escapeHTML(maCau) + '</small></div>';
+            if (status) status.innerHTML = '<div style="padding:10px;background:#eaf7ee;border:1px solid #b7e1c1;border-radius:8px;color:#146c2e"><b>✅ Đã cập nhật thành công.</b><br>' + escapeHTML(r.oldAnswer || current || '') + ' → <b>' + escapeHTML(r.newAnswer || selected.join(',')) + '</b><br><small>' + editKeyLabel + ': ' + escapeHTML(editKey) + '</small></div>';
             saveBtn.textContent = '✅ Đã cập nhật';
             setTimeout(function(){ window.closeAnswerFixModal(); }, 1400);
         }).catch(function(err){
