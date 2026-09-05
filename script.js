@@ -5542,8 +5542,8 @@ window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e
   async function downloadRemote(meta){
     const cached=await getRemoteCached(meta.id);
     if(cached?.file)return cached;
-    // Desktop vẫn dùng cache toàn file để giữ trải nghiệm hiện tại.
-    // Mobile không đi qua hàm này: mobile dùng PDF.js Range Transport bên dưới.
+    // Giữ hàm này để tương thích/cache cũ. Reader V42.7.1 không gọi hàm này;
+    // PC và Mobile đều dùng PDF.js Range Transport.
     const chunkBytes=CHUNK_BYTES;
     let parts=[],start=0,total=Number(meta.size)||0,received=0;
     while(start<total){
@@ -5560,22 +5560,34 @@ window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e
 
   // Mobile reader: PDF.js đọc trực tiếp theo byte-range.
   // Không tải toàn bộ PDF xuống điện thoại trước khi mở sách.
+  // Reader dùng Range cho CẢ PC và Mobile.
+  // PC: 2 MB/range để giảm số request nhưng vẫn mở trang nhanh.
+  // Mobile: 1 MB/range để tiết kiệm RAM.
   function createDriveRangeTransport(meta){
     if(!window.pdfjsLib?.PDFDataRangeTransport) throw new Error('PDF.js chưa hỗ trợ đọc Range.');
     const total=Number(meta.size)||0;
-    const rangeSize=1024*1024; // 1 MB: cân bằng giữa tốc độ và RAM trên mobile.
+    const mobile=isMobileReader();
+    const rangeSize=mobile?1024*1024:2*1024*1024;
     const transport=new pdfjsLib.PDFDataRangeTransport(total,null,false);
     transport.requestDataRange=async function(begin,end){
       try{
+        // PDF.js thường yêu cầu theo rangeChunkSize. Giữ đúng range được yêu cầu,
+        // không bao giờ tải cả file. Nếu PDF.js yêu cầu nhỏ hơn chunk thì chỉ lấy đúng phần đó.
         const wanted=Math.max(1,Math.min(rangeSize,end-begin));
-        const r=await gasJsonp('ebookrange',{id:String(meta.id),start:String(begin),end:String(begin+wanted),rangeBytes:String(rangeSize)});
+        const r=await gasJsonp('ebookrange',{
+          id:String(meta.id),
+          start:String(begin),
+          end:String(begin+wanted),
+          rangeBytes:String(rangeSize)
+        });
         if(!r||!r.ok)throw new Error(r?.message||'Không tải được vùng dữ liệu PDF.');
         const data=b64ToU8(r.data);
+        if(!data.length)throw new Error('Vùng dữ liệu PDF trả về rỗng.');
         transport.onDataRange(Number(r.start),data);
         if(typeof transport.onDataProgress==='function')transport.onDataProgress(Number(r.start)+data.length,total);
+        setStatus((mobile?'📱 ':'🖥️ ')+'Đang tải vùng dữ liệu '+Math.round(data.length/1024)+' KB…');
       }catch(err){
         console.error('Ebook range error',err);
-        if(typeof transport.onDataRangeProgressiveDone==='function'){}
         throw err;
       }
     };
@@ -5645,34 +5657,30 @@ window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e
       if(!meta)throw new Error('Không tìm thấy sách trong thư viện.');
       if(title)title.textContent=meta.name||'Sách điện tử';
 
-      // Mobile: mở PDF.js bằng Range Transport, chỉ tải các byte PDF mà
-      // trình đọc thực sự yêu cầu. Desktop giữ nguyên cache toàn file.
-      if(isMobileReader()){
-        await openMobileRangeBook(meta);
-      }else{
-        setStatus('⏳ Đang tải sách…');
-        const b=await downloadRemote(meta);
-        await openBookRecord(b);
-      }
+      // V42.7.1: PC và Mobile cùng dùng PDF.js Range Transport.
+      // Chỉ khác cách hiển thị: PC 2 trang, Mobile 1 trang.
+      await openRangeBook(meta);
     }catch(e){console.error(e);if(modal)modal.style.display='none';alert('Không mở được sách: '+e.message);}
   }
 
-  async function openMobileRangeBook(meta){
+  async function openRangeBook(meta){
     if(!window.pdfjsLib)throw new Error('Chưa tải được PDF.js. Hãy kiểm tra kết nối Internet rồi tải lại trang.');
     currentBook={...meta,source:'drive-range'};currentSpread=0;currentZoom=1;flipping=false;pageCache.clear();
+    const mobile=isMobileReader();
+    const rangeSize=mobile?1024*1024:2*1024*1024;
     const transport=createDriveRangeTransport(meta);
-    setStatus('⏳ Đang đọc sách trực tiếp…');
+    setStatus((mobile?'📱 ':'🖥️ ')+'Đang đọc trực tiếp theo vùng dữ liệu…');
     currentPdf=await pdfjsLib.getDocument({
       range:transport,
       length:Number(meta.size)||0,
       disableStream:true,
       disableAutoFetch:true,
-      rangeChunkSize:1024*1024,
+      rangeChunkSize:rangeSize,
       useWorkerFetch:false,
       useWasm:false
     }).promise;
     const pi=document.getElementById('ebook-page-input');if(pi){pi.max=currentPdf.numPages;pi.value=1;}
-    setStatus('📖 Đang hiển thị trang 1…');
+    setStatus((mobile?'📱 ':'🖥️ ')+'📖 Đang hiển thị trang 1…');
     await renderSpread();
     preloadSpread(1);
   }
