@@ -5563,18 +5563,39 @@ window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e
       const books=Array.isArray(r.books)?r.books:[];
       if(!books.length){box.innerHTML='<div class="ebook-empty">📖 Chưa có sách trong thư viện chung.<br>Bảo có thể bấm <b>➕ Nạp PDF vào Drive</b>.</div>';return;}
       const isBao=/^bao$/i.test(String(document.getElementById('student-code')?.value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,''));
-      box.innerHTML=books.map(b=>`<div class="ebook-card">
-        <div class="ebook-cover"><div class="ebook-cover-placeholder">📘</div></div>
-        <div class="ebook-card-body"><div class="ebook-title">${esc(b.name)}</div><div class="ebook-meta">📄 PDF • ${fmtSize(b.size)} • Drive</div>
+      box.innerHTML=books.map(b=>`<div class="ebook-card" data-book-card="${esc(b.id)}">
+        <div class="ebook-cover" data-cover-box="${esc(b.id)}"><div class="ebook-cover-placeholder">📘</div><div class="ebook-cover-loading">Đang tải bìa…</div></div>
+        <div class="ebook-card-body"><div class="ebook-title">${esc(b.name)}</div><div class="ebook-meta">📄 PDF • ${fmtSize(b.size)} • Drive</div><div class="ebook-meta">✍️ Tác giả: ${esc(b.author||'Chưa cập nhật')} • 📑 Số trang: ${b.pageCount?esc(b.pageCount):'Xem khi mở sách'}</div>
           <div class="ebook-card-actions"><button type="button" class="ebook-open-btn" data-drive-open="${esc(b.id)}">📖 Xem sách</button>${isBao?`<button type="button" class="ebook-delete-btn" data-drive-del="${esc(b.id)}" title="Xóa sách">🗑️</button>`:''}</div>
         </div></div>`).join('');
       box.querySelectorAll('[data-drive-open]').forEach(btn=>btn.addEventListener('click',()=>openRemoteBook(String(btn.dataset.driveOpen))));
+      loadBookCovers(books);
       box.querySelectorAll('[data-drive-del]').forEach(btn=>btn.addEventListener('click',async()=>{
         if(!confirm('Xóa sách này khỏi thư viện Google Drive?'))return;
         try{await gasJsonp('ebookdelete',{id:String(btn.dataset.driveDel),maHS:String(document.getElementById('student-code')?.value||'')});await delCachedRemote(String(btn.dataset.driveDel));await refresh();}
         catch(e){alert('Không xóa được: '+e.message);}
       }));
     }catch(e){box.innerHTML='<div class="ebook-empty">❌ '+esc(e.message)+'</div>';}
+  }
+
+  async function loadBookCovers(books){
+    await Promise.all((books||[]).map(async b=>{
+      try{
+        const r=await gasJsonp('ebookcover',{id:String(b.id)});
+        if(!r||!r.ok||!r.data)return;
+        const box=document.querySelector('[data-cover-box="'+CSS.escape(String(b.id))+'"]');
+        if(!box)return;
+        const img=document.createElement('img');
+        img.alt='Bìa '+String(b.name||'sách');
+        img.src='data:'+(r.mime||'image/jpeg')+';base64,'+r.data;
+        const ph=box.querySelector('.ebook-cover-placeholder'); if(ph)ph.remove();
+        const ld=box.querySelector('.ebook-cover-loading'); if(ld)ld.remove();
+        box.appendChild(img);
+      }catch(e){
+        const box=document.querySelector('[data-cover-box="'+CSS.escape(String(b.id))+'"]');
+        const ld=box?.querySelector('.ebook-cover-loading'); if(ld)ld.textContent='Bìa chưa có sẵn';
+      }
+    }));
   }
 
   window.importEbookPDFs=window.openEbookUpload;
