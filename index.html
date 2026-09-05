@@ -208,7 +208,308 @@ body.dark-mode .dict-v11-recent button { background:#2d2d2d; color:#eee; border-
                 padding: 15px !important;
             }
         }
-    </style>
+    
+
+/* V42.6.3 UI PATCH - moved into valid <style> block */
+/* ==================== V23 UI PATCH - appended ==================== */
+/* =========================================================
+   V23 SOFT PROFESSIONAL UI PATCH
+   Giữ nguyên bố cục V21 - chỉ nâng cấp thẩm mỹ
+   ========================================================= */
+
+:root{
+  --v23-ink:#263238;
+  --v23-muted:#66737c;
+  --v23-card:#ffffff;
+  --v23-border:#d9e3e8;
+  --v23-accent:#5f35c8;
+  --v23-blue:#1f6fd1;
+  --v23-shadow:0 14px 34px rgba(34,68,84,.12);
+}
+
+body{
+  background:linear-gradient(180deg,#edf6f8 0%,#e4f0f3 100%) !important;
+  padding:18px !important;
+}
+
+/* Giữ nguyên kiểu giao diện cũ, chỉ làm mềm và hiện đại hơn */
+.container#start-screen{
+  background:linear-gradient(180deg,#b8d9e1 0%,#add2dc 100%) !important;
+  max-width:700px !important;
+  padding:26px !important;
+  border-radius:18px !important;
+  box-shadow:var(--v23-shadow) !important;
+  border:1px solid rgba(255,255,255,.62);
+}
+
+.container#start-screen > div:first-child{
+  padding:0 2px 2px;
+  margin-bottom:14px !important;
+}
+
+.container#start-screen h1{
+  color:#4a2421 !important;
+  letter-spacing:.2px;
+  font-size:clamp(1.75rem,4vw,2.35rem) !important;
+  text-shadow:0 1px 0 rgba(255,255,255,.25);
+}
+
+/* Nhóm công cụ đầu trang */
+.container#start-screen > div:nth-child(2){
+  gap:12px !important;
+  margin-bottom:22px !important;
+}
+.container#start-screen > div:nth-child(2) button{
+  min-height:56px !important;
+  border-radius:11px !important;
+  box-shadow:0 7px 14px rgba(35,66,78,.10) !important;
+  transition:transform .18s ease,box-shadow .18s ease,filter .18s ease;
+}
+.container#start-screen > div:nth-child(2) button:hover{
+  transform:translateY(-1px);
+  box-shadow:0 10px 18px rgba(35,66,78,.16) !important;
+  filter:brightness(1.03);
+}
+
+/* Label và trường nhập */
+.container#start-screen label{
+  color:#35434b !important;
+  letter-spacing:.1px;
+}
+
+.container#start-screen input[type="text"],
+.container#start-screen select{
+  min-height:58px !important;
+  background:rgba(255,255,255,.93) !important;
+  border:1px solid rgba(106,62,57,.68) !important;
+  border-radius:11px !important;
+  box-shadow:0 3px 9px rgba(40,61,70,.06);
+  color:#29323a !important;
+}
+.container#start-screen input[type="text"]:focus,
+.container#start-screen select:focus{
+  outline:none !important;
+  border-color:#5f35c8 !important;
+  box-shadow:0 0 0 4px rgba(95,53,200,.12) !important;
+}
+
+/* Nút tải dữ liệu */
+#load-data-btn{
+  min-height:58px !important;
+  border-radius:11px !important;
+  background:linear-gradient(135deg,#6b35cf,#7d42d9) !important;
+  box-shadow:0 9px 18px rgba(104,55,205,.20) !important;
+  transition:transform .18s ease,box-shadow .18s ease !important;
+}
+#load-data-btn:hover{
+  transform:translateY(-1px);
+  box-shadow:0 12px 22px rgba(104,55,205,.27) !important;
+}
+
+/* Khung MADE - giữ checkbox nhưng làm gọn và chuyên nghiệp */
+#toggle-made{
+  accent-color:#5f35c8;
+}
+.container#start-screen > div:has(#toggle-made){
+  background:rgba(255,255,255,.90) !important;
+  border:1px solid rgba(119,82,78,.62) !important;
+  border-radius:13px !important;
+  box-shadow:0 5px 12px rgba(34,61,70,.07);
+  padding:16px !important;
+}
+.container#start-screen > div:has(#toggle-made) > label{
+  color:#4a2421 !important;
+}
+#made-select{
+  background:#f8fbfc !important;
+}
+
+/* Thanh chọn chủ đề */
+.container#start-screen > div:has(+ #topic-container){
+  margin-top:16px !important;
+  padding:0 1px;
+}
+.container#start-screen > div:has(+ #topic-container) button{
+  border-radius:9px !important;
+  padding:8px 14px !important;
+  box-shadow:0 4px 9px rgba(0,0,0,.10);
+}
+
+#topic-container{
+  background:rgba(255,255,255,.93) !important;
+  border:1px solid rgba(117,73,68,.58) !important;
+  border-radius:13px !important;
+  padding:13px 16px !important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.7),0 5px 12px rgba(35,61,72,.06);
+}
+#topic-container label{
+  display:flex !important;
+  align-items:center;
+  gap:10px;
+  padding:8px 4px;
+  border-radius:8px;
+  transition:background .15s ease;
+}
+#topic-container label:hover{ background:#f2f7f9; }
+#topic-container input[type="checkbox"]{
+  accent-color:#2d73c8;
+  width:22px !important;
+  height:22px !important;
+}
+
+/* Hệ thống nút hành động */
+#start-btn{
+  min-height:58px !important;
+  border-radius:12px !important;
+  box-shadow:0 8px 16px rgba(30,59,72,.13) !important;
+  transition:transform .18s ease,box-shadow .18s ease,filter .18s ease !important;
+}
+#start-btn:hover{ transform:translateY(-1px); filter:brightness(1.02); }
+#start-btn{
+  background:linear-gradient(135deg,#2176d2,#1966bf) !important;
+  font-size:1.18em !important;
+  letter-spacing:.2px;
+}
+
+/* Các nút được JS tạo thêm */
+button#retry-wrong-btn,
+#btn-retry-wrong,
+button[onclick*="retry"]{
+  border-radius:12px !important;
+}
+
+/* V42.6.3 - Hàng công cụ đầu trang gọn, cân đối */
+.start-tools-row{
+  display:grid !important;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:10px;
+  margin:0 0 16px 0;
+}
+.start-tool-btn{
+  min-width:0;
+  width:100%;
+  padding:10px 8px;
+  border:0;
+  border-radius:8px;
+  cursor:pointer;
+  color:#fff;
+  font-weight:700;
+  font-size:.95em;
+  white-space:nowrap;
+  box-shadow:0 2px 5px rgba(0,0,0,.08);
+}
+.start-tool-calc{background:#fd7e14;}
+.start-tool-dict{background:#17a2b8;}
+.start-tool-ranking{background:#6c757d;}
+.start-tool-btn:active{transform:scale(.985);}
+
+/* V42.6.3 - Modal bảng xếp hạng */
+#ranking-modal{
+  display:none;
+  position:fixed;
+  inset:0;
+  z-index:10020;
+  background:rgba(0,0,0,.58);
+  align-items:center;
+  justify-content:center;
+  padding:14px;
+  box-sizing:border-box;
+}
+#ranking-modal .ranking-modal-content{
+  width:min(720px,100%);
+  max-height:88vh;
+  overflow:auto;
+  background:#fff;
+  border-radius:14px;
+  padding:18px;
+  box-sizing:border-box;
+  box-shadow:0 12px 35px rgba(0,0,0,.28);
+  border:2px solid #e0303c;
+}
+.ranking-modal-header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+  margin-bottom:12px;
+  padding-bottom:10px;
+  border-bottom:1px solid #edf0f2;
+}
+.ranking-modal-header h3{
+  margin:0;
+  color:#e0303c;
+  font-size:1.3em;
+}
+.ranking-modal-close{
+  border:0;
+  border-radius:8px;
+  padding:8px 12px;
+  background:#6c757d;
+  color:#fff;
+  font-weight:700;
+  cursor:pointer;
+  white-space:nowrap;
+}
+#ranking-list-modal > *{line-height:1.55;}
+
+/* Bảng xếp hạng */
+#leaderboard{
+  margin-top:28px !important;
+  background:rgba(255,255,255,.94) !important;
+  border:1px solid rgba(224,48,60,.82) !important;
+  border-radius:15px !important;
+  box-shadow:0 8px 20px rgba(43,67,76,.08) !important;
+  padding:20px !important;
+}
+#leaderboard h3{
+  margin-bottom:14px !important;
+  padding-bottom:11px;
+  border-bottom:1px solid #edf0f2;
+}
+#ranking-list > *{
+  line-height:1.55;
+}
+
+/* Nút tối không quá chói */
+#dark-mode-toggle{
+  background:#fff !important;
+  color:#4a2421 !important;
+  border:2px solid #4a2421 !important;
+  border-radius:10px !important;
+  box-shadow:0 4px 10px rgba(53,47,44,.10) !important;
+}
+
+/* Quiz screen vẫn đồng bộ với giao diện */
+.container#quiz-screen{
+  background:#eaf7fa !important;
+  border-radius:18px !important;
+  box-shadow:var(--v23-shadow) !important;
+}
+
+/* Dark mode */
+body.dark-mode,
+body.dark-mode-active{
+  background:linear-gradient(180deg,#11191e,#17242a) !important;
+}
+body.dark-mode .container#start-screen,
+body.dark-mode-active .container#start-screen{
+  background:linear-gradient(180deg,#29454f,#213b44) !important;
+  border-color:rgba(255,255,255,.08);
+}
+body.dark-mode .container#start-screen h1,
+body.dark-mode-active .container#start-screen h1{ color:#f5eeee !important; }
+body.dark-mode .container#start-screen label,
+body.dark-mode-active .container#start-screen label{ color:#eef6f8 !important; }
+
+@media (max-width:640px){
+  body{ padding:8px !important; }
+  .container#start-screen{ padding:18px !important; border-radius:14px !important; }
+  .container#start-screen h1{ font-size:1.65rem !important; }
+  .start-tools-row{ gap:7px !important; margin-bottom:14px !important; }
+  .start-tool-btn{ padding:10px 4px !important; font-size:.84em !important; }
+  #leaderboard{ padding:16px !important; }
+}
+</style>
 </head>
 <body>
 
@@ -297,13 +598,13 @@ body.dark-mode .dict-v11-recent button { background:#2d2d2d; color:#eee; border-
     <button type="button" id="start-btn" onclick="window.startQuizWithToolCheck()" style="width: 100%; padding: 16px; background: #007bff; color: white; border: none; cursor: pointer; margin-top: 5px; border-radius: 8px; font-weight: bold; font-size: 1.2em;">Bắt Đầu Làm Bài</button>
 
     <!-- V42.6.3: BẢNG XẾP HẠNG KHÔNG CÒN CHIẾM CHỖ TRÊN TRANG CHÍNH -->
-    <div id="leaderboard" style="display:none;">
+    <div id="leaderboard" style="display:none !important;">
         <div id="ranking-list"></div>
     </div>
 </div>
 
 <!-- V42.6.3: MODAL BẢNG XẾP HẠNG -->
-<div id="ranking-modal" role="dialog" aria-modal="true" aria-labelledby="ranking-modal-title">
+<div id="ranking-modal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="ranking-modal-title">
     <div class="ranking-modal-content">
         <div class="ranking-modal-header">
             <h3 id="ranking-modal-title">🏆 Bảng xếp hạng</h3>
@@ -431,3 +732,222 @@ body.dark-mode .dict-v11-recent button { background:#2d2d2d; color:#eee; border-
 <script src="script.js"></script>
 </body>
 </html>
+
+
+css:
+
+/* --- BIẾN MÀU SẮC (Dễ dàng thay đổi sau này) --- */
+:root {
+    --primary: #4f46e5;
+    --primary-hover: #4338ca;
+    --success: #22c55e;
+    --bg-color: #f8fafc;
+    --card-bg: #ffffff;
+    --text-main: #1e293b;
+    --text-muted: #64748b;
+    --border-color: #e2e8f0;
+}
+
+/* --- TỔNG THỂ --- */
+body { 
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; 
+    background-color: var(--bg-color); 
+    padding: 20px; 
+    color: var(--text-main); 
+    line-height: 1.6;
+}
+
+.container { 
+    background: #e6f7ff; 
+    padding: 30px; 
+    max-width: 700px; 
+    margin: auto; 
+    border-radius: 16px; 
+    box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); 
+}
+
+h1 { text-align: center; color: var(--text-main); margin-bottom: 30px; font-weight: 700; }
+
+/* --- CÂU HỎI & TRẠNG THÁI --- */
+.status-bar { 
+    position: sticky; top: 10px; z-index: 1000; 
+    background: white; border: 1px solid var(--border-color); 
+    padding: 15px 20px; border-radius: 12px; margin-bottom: 25px; 
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); 
+    display: flex; justify-content: space-between; align-items: center;
+}
+
+/* Tương thích với thanh trạng thái sticky header của HTML hiện tại */
+.quiz-sticky-header {
+    position: sticky;
+    top: 0;
+    background-color: #bbe9f0;
+    padding: 14px 18px;
+    margin: -30px -30px 20px -30px;
+    border-bottom: 2px solid #540606;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: bold;
+    font-size: 1.1em;
+    z-index: 100;
+    border-top-left-radius: 16px;
+    border-top-right-radius: 16px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+}
+
+.quiz-card { 
+    background: var(--card-bg); padding: 25px; margin-bottom: 20px; 
+    border-radius: 12px; border: 1px solid var(--border-color); 
+    transition: transform 0.2s;
+}
+
+/* --- TỪ VỰNG --- */
+input[type="text"] {
+    padding: 12px; border: 2px solid var(--border-color);
+    border-radius: 8px; font-size: 1rem; width: 100%; box-sizing: border-box;
+    margin-top: 10px; transition: border 0.3s;
+}
+input[type="text"]:focus { outline: none; border-color: var(--primary); }
+
+.check-voca-btn {
+    width: 100%; padding: 12px; background-color: var(--primary);
+    color: white; border: none; border-radius: 8px; font-weight: 600;
+    margin-top: 10px; cursor: pointer; transition: background 0.2s;
+}
+.check-voca-btn:hover { background-color: var(--primary-hover); }
+
+/* --- TRẮC NGHIỆM --- */
+.option-box { 
+    border: 2px solid var(--border-color); padding: 14px; 
+    margin: 10px 0; border-radius: 10px; cursor: pointer; 
+    background: #fcfcfc; transition: all 0.2s; 
+}
+.option-box:hover { background-color: #f1f5f9; border-color: #cbd5e1; }
+
+/* --- CÁC NÚT BẤM CHÍNH (Áp dụng cho nút lớn, loại trừ các nút trên header) --- */
+.container > button, 
+#start-btn, 
+#submit-btn { 
+    width: 100%; padding: 15px; border: none; cursor: pointer; 
+    border-radius: 10px; font-weight: 600; margin-top: 15px;
+    font-size: 1rem; transition: transform 0.1s, background 0.2s;
+}
+button:active { transform: scale(0.98); }
+
+#start-btn { background: var(--primary); color: white; }
+#start-btn:hover { background: var(--primary-hover); }
+
+#submit-btn { background: var(--success); color: white; margin-top: 25px; }
+
+/* --- BẢNG XẾP HẠNG (Chuyên nghiệp) --- */
+.leaderboard-container { 
+    background: #ffffff; padding: 20px; border-radius: 12px; 
+    border: 1px solid var(--border-color); margin-top: 20px;
+}
+.leaderboard-item { 
+    padding: 12px 0; border-bottom: 1px solid #f1f5f9; 
+    display: flex; justify-content: space-between; align-items: center;
+}
+.medal { font-size: 1.4em; margin-right: 10px; }
+.score-badge { 
+    background: #f1f5f9; padding: 4px 12px; border-radius: 20px; 
+    font-weight: 700; color: var(--primary); 
+}
+
+/* --- MODAL CHUNG (Tra từ & ĐT Bất quy tắc) --- */
+#dict-modal, #irregular-verbs-modal {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.5);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+}
+.dict-content {
+    background: #fff;
+    padding: 25px;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 650px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+    border: 2px solid #540606;
+    position: relative;
+}
+/* --- CSS RIÊNG CHO MÁY TÍNH CẦM TAY (ĐẶT Ở CUỐI FILE) --- */
+#calc-modal {
+    position: fixed !important;
+    width: 210px !important;
+    height: auto !important;
+    min-height: unset !important;
+    max-height: unset !important;
+    background: #222 !important;
+    padding: 10px !important;
+    border-radius: 8px !important;
+    z-index: 9999 !important;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.4) !important;
+    display: none;
+    flex-direction: column !important;
+    user-select: none !important;
+    overflow: hidden !important;
+}
+
+#calc-modal * {
+    box-sizing: border-box !important;
+}
+
+#calc-header {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    margin-bottom: 8px !important;
+    cursor: move !important;
+    background: #333 !important;
+    padding: 4px 8px !important;
+    border-radius: 4px !important;
+}
+
+#calc-display {
+    width: 100% !important;
+    height: 32px !important;
+    background: #fff !important;
+    text-align: right !important;
+    font-size: 16px !important;
+    padding: 4px !important;
+    margin-bottom: 8px !important;
+    border-radius: 4px !important;
+    border: none !important;
+}
+
+#calc-modal > div:last-child {
+    display: grid !important;
+    grid-template-columns: repeat(4, 1fr) !important;
+    gap: 4px !important;
+    height: auto !important;
+}
+@media print {
+    /* Ẩn các thành phần giao diện không cần thiết khi in */
+    #btn-calc, #btn-dict, #btn-verbs, 
+    .timer, .nav-buttons, button, 
+    #subject-select, .header-tools {
+        display: none !important;
+    }
+
+    /* Đưa nền về màu trắng và định dạng lại khung bài tập */
+    body {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+
+    /* Mỗi câu hỏi không bị ngắt đôi giữa 2 trang */
+    .question-card, .quiz-item {
+        border: 1px solid #ccc !important;
+        box-shadow: none !important;
+        page-break-inside: avoid;
+        margin-bottom: 15px !important;
+        padding: 10px !important;
+    }
+}
