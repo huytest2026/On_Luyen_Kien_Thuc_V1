@@ -5440,7 +5440,7 @@ window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e
   const DB_VERSION=3;
   const STORE='books';
   const CHUNK_BYTES=3*1024*1024;
-  let dbPromise=null,currentBook=null,currentPdf=null,currentSpread=0,currentZoom=1,flipping=false;
+  let dbPromise=null,currentBook=null,currentPdf=null,currentSpread=0,currentZoom=1,flipping=false,currentPdfUrl=null;
   const pageCache=new Map();
 
   function dbOpen(){
@@ -5531,21 +5531,55 @@ window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e
   async function delCachedRemote(id){const b=await getRemoteCached(id);if(b)return dbTx('readwrite',st=>st.delete(b.id));}
   async function getBook(id){return dbTx('readonly',st=>st.get(Number(id)));}
 
+  function isMobileReader(){
+    return !!(window.matchMedia&&window.matchMedia('(max-width: 800px)').matches);
+  }
+  function b64ToU8(data){
+    const bin=atob(data||''),u8=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++)u8[i]=bin.charCodeAt(i);
+    return u8;
+  }
   async function downloadRemote(meta){
     const cached=await getRemoteCached(meta.id);
     if(cached?.file)return cached;
+    // Desktop vẫn dùng cache toàn file để giữ trải nghiệm hiện tại.
+    // Mobile không đi qua hàm này: mobile dùng PDF.js Range Transport bên dưới.
+    const chunkBytes=CHUNK_BYTES;
     let parts=[],start=0,total=Number(meta.size)||0,received=0;
     while(start<total){
       setStatus('⏳ Tải sách '+Math.round(received/Math.max(total,1)*100)+'%...');
-      const r=await gasJsonp('ebookchunk',{id:meta.id,start:String(start)});
+      const r=await gasJsonp('ebookchunk',{id:meta.id,start:String(start),chunkBytes:String(chunkBytes)});
       if(!r||!r.ok)throw new Error(r?.message||'Không tải được dữ liệu sách.');
-      const bin=atob(r.data||''),u8=new Uint8Array(bin.length);
-      for(let i=0;i<bin.length;i++)u8[i]=bin.charCodeAt(i);
+      const u8=b64ToU8(r.data);
       parts.push(u8);received+=u8.length;start=Number(r.end)+1;
       if(!u8.length)break;
     }
     const blob=new Blob(parts,{type:'application/pdf'});
     return saveRemoteCache(meta,blob);
+  }
+
+  // Mobile reader: PDF.js đọc trực tiếp theo byte-range.
+  // Không tải toàn bộ PDF xuống điện thoại trước khi mở sách.
+  function createDriveRangeTransport(meta){
+    if(!window.pdfjsLib?.PDFDataRangeTransport) throw new Error('PDF.js chưa hỗ trợ đọc Range.');
+    const total=Number(meta.size)||0;
+    const rangeSize=1024*1024; // 1 MB: cân bằng giữa tốc độ và RAM trên mobile.
+    const transport=new pdfjsLib.PDFDataRangeTransport(total,null,false);
+    transport.requestDataRange=async function(begin,end){
+      try{
+        const wanted=Math.max(1,Math.min(rangeSize,end-begin));
+        const r=await gasJsonp('ebookrange',{id:String(meta.id),start:String(begin),end:String(begin+wanted),rangeBytes:String(rangeSize)});
+        if(!r||!r.ok)throw new Error(r?.message||'Không tải được vùng dữ liệu PDF.');
+        const data=b64ToU8(r.data);
+        transport.onDataRange(Number(r.start),data);
+        if(typeof transport.onDataProgress==='function')transport.onDataProgress(Number(r.start)+data.length,total);
+      }catch(err){
+        console.error('Ebook range error',err);
+        if(typeof transport.onDataRangeProgressiveDone==='function'){}
+        throw err;
+      }
+    };
+    return transport;
   }
 
   window.openEbookLibrary=async function(){
@@ -5601,14 +5635,46 @@ window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e
   window.importEbookPDFs=window.openEbookUpload;
 
   async function openRemoteBook(remoteId){
+    const modal=document.getElementById('ebook-reader-modal');
     try{
-      setStatus('⏳ Đang chuẩn bị sách...');
+      if(modal)modal.style.display='flex';
+      const title=document.getElementById('ebook-reader-title');if(title)title.textContent='Đang mở sách…';
+      setStatus('⏳ Đang lấy thông tin sách…');
       const list=await gasJsonp('ebooklibrary');
       const meta=(list.books||[]).find(x=>String(x.id)===String(remoteId));
       if(!meta)throw new Error('Không tìm thấy sách trong thư viện.');
-      const b=await downloadRemote(meta);
-      await openBookRecord(b);
-    }catch(e){console.error(e);alert('Không mở được sách: '+e.message);}
+      if(title)title.textContent=meta.name||'Sách điện tử';
+
+      // Mobile: mở PDF.js bằng Range Transport, chỉ tải các byte PDF mà
+      // trình đọc thực sự yêu cầu. Desktop giữ nguyên cache toàn file.
+      if(isMobileReader()){
+        await openMobileRangeBook(meta);
+      }else{
+        setStatus('⏳ Đang tải sách…');
+        const b=await downloadRemote(meta);
+        await openBookRecord(b);
+      }
+    }catch(e){console.error(e);if(modal)modal.style.display='none';alert('Không mở được sách: '+e.message);}
+  }
+
+  async function openMobileRangeBook(meta){
+    if(!window.pdfjsLib)throw new Error('Chưa tải được PDF.js. Hãy kiểm tra kết nối Internet rồi tải lại trang.');
+    currentBook={...meta,source:'drive-range'};currentSpread=0;currentZoom=1;flipping=false;pageCache.clear();
+    const transport=createDriveRangeTransport(meta);
+    setStatus('⏳ Đang đọc sách trực tiếp…');
+    currentPdf=await pdfjsLib.getDocument({
+      range:transport,
+      length:Number(meta.size)||0,
+      disableStream:true,
+      disableAutoFetch:true,
+      rangeChunkSize:1024*1024,
+      useWorkerFetch:false,
+      useWasm:false
+    }).promise;
+    const pi=document.getElementById('ebook-page-input');if(pi){pi.max=currentPdf.numPages;pi.value=1;}
+    setStatus('📖 Đang hiển thị trang 1…');
+    await renderSpread();
+    preloadSpread(1);
   }
 
   async function openBookRecord(b){
@@ -5616,44 +5682,60 @@ window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e
     currentBook=b;currentSpread=0;currentZoom=1;flipping=false;pageCache.clear();
     const modal=document.getElementById('ebook-reader-modal');if(modal)modal.style.display='flex';
     const title=document.getElementById('ebook-reader-title');if(title)title.textContent=b.name;
-    const buf=await b.file.arrayBuffer();
-    currentPdf=await pdfjsLib.getDocument({data:buf,disableAutoFetch:false,disableStream:false}).promise;
+    if(currentPdfUrl){try{URL.revokeObjectURL(currentPdfUrl);}catch(e){}}
+    currentPdfUrl=URL.createObjectURL(b.file);
+    currentPdf=await pdfjsLib.getDocument({url:currentPdfUrl,disableAutoFetch:false,disableStream:false}).promise;
     const pi=document.getElementById('ebook-page-input');if(pi){pi.max=currentPdf.numPages;pi.value=1;}
     await renderSpread();preloadSpread(1);
   }
 
-  window.closeEbookReader=function(){const m=document.getElementById('ebook-reader-modal');if(m)m.style.display='none';currentPdf=null;currentBook=null;pageCache.clear();};
+  window.closeEbookReader=function(){const m=document.getElementById('ebook-reader-modal');if(m)m.style.display='none';try{currentPdf?.destroy?.();}catch(e){}currentPdf=null;currentBook=null;pageCache.clear();if(currentPdfUrl){try{URL.revokeObjectURL(currentPdfUrl);}catch(e){}currentPdfUrl=null;}};
 
   async function renderPage(pageNo,canvasId,numId){
     const c=document.getElementById(canvasId),n=document.getElementById(numId);if(!c)return;
     if(!currentPdf||pageNo<1||pageNo>currentPdf.numPages){c.width=1;c.height=1;if(n)n.textContent='';return;}
     const holder=c.parentElement,maxW=Math.max(180,holder.clientWidth-8),maxH=Math.max(180,holder.clientHeight-8);
-    const page=await currentPdf.getPage(pageNo),base=page.getViewport({scale:1});
-    const fit=Math.min(maxW/base.width,maxH/base.height),quality=Math.min(window.devicePixelRatio||1,2.2),scale=Math.max(.45,fit*currentZoom*quality);
+    const page=pageCache.get(pageNo)||await currentPdf.getPage(pageNo);
+    pageCache.set(pageNo,page);
+    const base=page.getViewport({scale:1});
+    const mobile=isMobileReader(),quality=Math.min(window.devicePixelRatio||1,mobile?1.45:2.0);
+    const fit=Math.min(maxW/base.width,maxH/base.height),scale=Math.max(.45,fit*currentZoom*quality);
     const vp=page.getViewport({scale}),ctx=c.getContext('2d',{alpha:false});c.width=Math.ceil(vp.width);c.height=Math.ceil(vp.height);c.style.width=Math.round(vp.width/quality)+'px';c.style.height=Math.round(vp.height/quality)+'px';
     await page.render({canvasContext:ctx,viewport:vp,background:'rgb(255,255,255)'}).promise;if(n)n.textContent='Trang '+pageNo+' / '+currentPdf.numPages;
   }
   async function renderSpread(){
-    if(!currentPdf)return;const leftNo=currentSpread*2+1,rightNo=leftNo+1;
-    setStatus('⏳ Đang hiển thị trang '+leftNo+(rightNo<=currentPdf.numPages?'–'+rightNo:'')+'...');
-    await Promise.all([renderPage(leftNo,'ebook-canvas-left','ebook-page-left-no'),renderPage(rightNo,'ebook-canvas-right','ebook-page-right-no')]);
-    const pi=document.getElementById('ebook-page-input');if(pi)pi.value=leftNo;setStatus('Trang '+leftNo+(rightNo<=currentPdf.numPages?'–'+rightNo:'')+' / '+currentPdf.numPages);
+    if(!currentPdf)return;
+    const mobile=window.matchMedia&&window.matchMedia('(max-width: 800px)').matches;
+    const leftNo=mobile?currentSpread*1+1:currentSpread*2+1;
+    const rightNo=mobile?0:leftNo+1;
+    setStatus('⏳ Đang hiển thị trang '+leftNo+(rightNo&&rightNo<=currentPdf.numPages?'–'+rightNo:'')+'...');
+    if(mobile){
+      await renderPage(leftNo,'ebook-canvas-right','ebook-page-right-no');
+      const lc=document.getElementById('ebook-canvas-left');if(lc){lc.width=1;lc.height=1;}
+      const ln=document.getElementById('ebook-page-left-no');if(ln)ln.textContent='';
+    }else{
+      await Promise.all([renderPage(leftNo,'ebook-canvas-left','ebook-page-left-no'),renderPage(rightNo,'ebook-canvas-right','ebook-page-right-no')]);
+    }
+    const pi=document.getElementById('ebook-page-input');if(pi)pi.value=leftNo;setStatus('Trang '+leftNo+(rightNo&&rightNo<=currentPdf.numPages?'–'+rightNo:'')+' / '+currentPdf.numPages);
   }
   function preloadSpread(spread){
-    if(!currentPdf)return;const a=spread*2+1,b=a+1;
-    [a,b].forEach(n=>{if(n>currentPdf.numPages||pageCache.has(n))return;currentPdf.getPage(n).then(p=>pageCache.set(n,p)).catch(()=>{});});
+    if(!currentPdf)return;const mobile=isMobileReader(),a=mobile?spread+1:spread*2+1,b=mobile?0:a+1;
+    [a,b].filter(Boolean).forEach(n=>{if(n>currentPdf.numPages||pageCache.has(n))return;currentPdf.getPage(n).then(p=>{pageCache.set(n,p);if(pageCache.size>6){const first=pageCache.keys().next().value;if(first!==n)pageCache.delete(first);}}).catch(()=>{});});
   }
   async function animateTurn(dir){
-    if(flipping||!currentPdf)return;const maxSpread=Math.floor((currentPdf.numPages-1)/2),next=dir>0?currentSpread+1:currentSpread-1;if(next<0||next>maxSpread)return;
+    if(flipping||!currentPdf)return;
+    const mobile=window.matchMedia&&window.matchMedia('(max-width: 800px)').matches;
+    const maxSpread=mobile?currentPdf.numPages-1:Math.floor((currentPdf.numPages-1)/2);
+    const next=dir>0?currentSpread+1:currentSpread-1;if(next<0||next>maxSpread)return;
     flipping=true;const book=document.getElementById('ebook-book'),layer=document.createElement('div');layer.className='ebook-turn-layer '+(dir>0?'next':'prev');const c=document.createElement('canvas');layer.appendChild(c);book.appendChild(layer);
-    const sourcePage=dir>0?(currentSpread*2+2):(currentSpread*2+1);const page=pageCache.get(Math.min(sourcePage,currentPdf.numPages))||await currentPdf.getPage(Math.min(sourcePage,currentPdf.numPages));
+    const sourcePage=mobile?(currentSpread+1):(dir>0?(currentSpread*2+2):(currentSpread*2+1));const page=pageCache.get(Math.min(sourcePage,currentPdf.numPages))||await currentPdf.getPage(Math.min(sourcePage,currentPdf.numPages));
     const rect=layer.getBoundingClientRect(),vp0=page.getViewport({scale:1}),fit=Math.min(rect.width/vp0.width,rect.height/vp0.height),q=Math.min(window.devicePixelRatio||1,2.2),vp=page.getViewport({scale:Math.max(.45,fit*currentZoom*q)});
     c.width=Math.ceil(vp.width);c.height=Math.ceil(vp.height);c.style.width='100%';c.style.height='100%';c.style.objectFit='contain';await page.render({canvasContext:c.getContext('2d',{alpha:false}),viewport:vp,background:'rgb(255,255,255)'}).promise;
     currentSpread=next;await renderSpread();preloadSpread(next+1);requestAnimationFrame(()=>layer.classList.add(dir>0?'flip-next':'flip-prev'));setTimeout(()=>{layer.remove();flipping=false;},560);
   }
   window.ebookNext=function(){animateTurn(1);};window.ebookPrev=function(){animateTurn(-1);};
   window.ebookZoom=function(delta){currentZoom=Math.max(.7,Math.min(2.4,currentZoom+(delta>0?.15:-.15)));renderSpread();};window.ebookFit=function(){currentZoom=1;renderSpread();};
-  window.ebookGoPage=function(){if(!currentPdf)return;const el=document.getElementById('ebook-page-input');let p=Math.max(1,Math.min(currentPdf.numPages,parseInt(el?.value||1,10)||1));currentSpread=Math.floor((p-1)/2);renderSpread();preloadSpread(currentSpread+1);};
+  window.ebookGoPage=function(){if(!currentPdf)return;const el=document.getElementById('ebook-page-input');let p=Math.max(1,Math.min(currentPdf.numPages,parseInt(el?.value||1,10)||1));const mobile=window.matchMedia&&window.matchMedia('(max-width: 800px)').matches;currentSpread=mobile?(p-1):Math.floor((p-1)/2);renderSpread();preloadSpread(currentSpread+1);};
   window.ebookFullscreen=function(){const el=document.getElementById('ebook-reader-modal');if(!document.fullscreenElement&&el?.requestFullscreen)el.requestFullscreen().catch(()=>{});else if(document.exitFullscreen)document.exitFullscreen().catch(()=>{});};
   document.addEventListener('click',e=>{const r=e.target.closest?.('#ebook-book');if(!r||flipping)return;if(e.target.closest('button,input'))return;const rect=r.getBoundingClientRect();if(e.clientX>rect.left+rect.width/2)window.ebookNext();else window.ebookPrev();});
   document.addEventListener('keydown',e=>{const m=document.getElementById('ebook-reader-modal');if(!m||m.style.display==='none')return;if(e.key==='ArrowRight'){e.preventDefault();window.ebookNext();}else if(e.key==='ArrowLeft'){e.preventDefault();window.ebookPrev();}else if(e.key==='+'||e.key==='='){e.preventDefault();window.ebookZoom(1);}else if(e.key==='-'){e.preventDefault();window.ebookZoom(-1);}else if(e.key==='Escape'){window.closeEbookReader();}});
