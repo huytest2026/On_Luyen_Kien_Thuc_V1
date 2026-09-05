@@ -559,7 +559,7 @@ body.dark-mode-active .container#start-screen label{ color:#eef6f8 !important; }
 .ebook-reader-controls button,.ebook-reader-controls input{height:40px;border:0;border-radius:9px;background:#eef3f7;color:#1d2a35;font-weight:700;padding:0 12px;cursor:pointer;box-sizing:border-box;}
 .ebook-reader-controls input{width:76px;text-align:center;}
 .ebook-reader-stage{position:relative;flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:14px 24px 22px;perspective:2200px;overflow:hidden;}
-.ebook-book{position:relative;width:min(94vw,1500px);height:min(88vh,900px);display:grid;grid-template-columns:1fr 1fr;background:#fff;border-radius:4px;box-shadow:0 15px 50px rgba(0,0,0,.45);overflow:hidden;}
+.ebook-book{position:relative;width:min(96vw,1800px);height:min(90vh,980px);display:grid;grid-template-columns:1fr 1fr;background:#fff;border-radius:4px;box-shadow:0 15px 50px rgba(0,0,0,.45);overflow:hidden;}
 .ebook-page{position:relative;background:#fff;overflow:hidden;display:flex;align-items:center;justify-content:center;}
 .ebook-page.left{border-right:1px solid #d7d7d7;box-shadow:inset -8px 0 16px -16px rgba(0,0,0,.55);}
 .ebook-page.right{box-shadow:inset 8px 0 16px -16px rgba(0,0,0,.55);}
@@ -581,7 +581,7 @@ body.dark-mode-active .container#start-screen label{ color:#eef6f8 !important; }
   .ebook-reader-controls{gap:4px;}
   .ebook-reader-controls button{padding:0 8px;font-size:.82em;}
   .ebook-reader-controls input{width:58px;height:36px;}
-  .ebook-stage{padding:8px;}
+  .ebook-reader-stage{padding:8px;}
   .ebook-book{width:96vw;height:82vh;grid-template-columns:1fr;}
   .ebook-page.left{display:none;}
   .ebook-page.right{display:flex;}
@@ -820,12 +820,10 @@ body.dark-mode #ebook-library-modal .ebook-title{color:#fff;}
       <button type="button" class="ebook-close" onclick="window.closeEbookLibrary()">✕ Đóng</button>
     </div>
     <div class="ebook-library-toolbar">
-      <label class="ebook-upload-btn">➕ Nạp file PDF
-        <input id="ebook-pdf-input" type="file" accept="application/pdf,.pdf" multiple style="display:none" onchange="window.importEbookPDFs(this.files)">
-      </label>
+      <button type="button" class="ebook-upload-btn" onclick="window.openEbookUpload()">➕ Nạp PDF vào thư viện chung</button>
       <button type="button" class="ebook-open-btn" onclick="window.refreshEbookLibrary()">🔄 Làm mới</button>
     </div>
-    <div class="ebook-hint">💡 Chọn PDF trên máy → hệ thống tự tạo sách, lấy trang đầu làm bìa và lưu vào thư viện của <b>trình duyệt này</b>. Không cần tạo lại khi mở lần sau. Nhấn vào sách để đọc kiểu flipbook.</div>
+    <div class="ebook-hint">💡 <b>Thư viện dùng chung Google Drive.</b> Bảo nạp PDF một lần → sách nằm trong thư viện chung. Các máy khác chỉ cần mở ứng dụng và bấm <b>📚 Thư viện</b> là thấy sách. Khi mở lần đầu, sách được tải về bộ nhớ tạm của máy để lần sau đọc nhanh hơn.</div>
     <div id="ebook-library-list" class="ebook-grid"><div class="ebook-empty">⏳ Đang mở thư viện...</div></div>
   </div>
 </div>
