@@ -5427,3 +5427,253 @@ window.printPDF = function() {
 
 window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e) {} });
 
+// ============================================================
+// V42.6.3 E-BOOK LIBRARY / PDF FLIPBOOK
+// PDF được lưu local bằng IndexedDB; không ảnh hưởng bootstrap bài kiểm tra.
+// ============================================================
+(function(){
+  'use strict';
+  const DB_NAME='V4263_EBOOK_LIBRARY';
+  const DB_VERSION=1;
+  const STORE='books';
+  let dbPromise=null;
+  let currentBook=null;
+  let currentPdf=null;
+  let currentSpread=0; // 0 => trang 1-2, 1 => 3-4...
+  let currentZoom=1;
+  let flipping=false;
+
+  function dbOpen(){
+    if(dbPromise) return dbPromise;
+    dbPromise=new Promise((resolve,reject)=>{
+      if(!window.indexedDB){ reject(new Error('Trình duyệt không hỗ trợ IndexedDB.')); return; }
+      const req=indexedDB.open(DB_NAME,DB_VERSION);
+      req.onupgradeneeded=e=>{
+        const db=e.target.result;
+        if(!db.objectStoreNames.contains(STORE)){
+          const st=db.createObjectStore(STORE,{keyPath:'id',autoIncrement:true});
+          st.createIndex('name','name',{unique:false});
+          st.createIndex('createdAt','createdAt',{unique:false});
+        }
+      };
+      req.onsuccess=e=>resolve(e.target.result);
+      req.onerror=()=>reject(req.error||new Error('Không mở được thư viện sách.'));
+    });
+    return dbPromise;
+  }
+  function dbTx(mode,fn){
+    return dbOpen().then(db=>new Promise((resolve,reject)=>{
+      const tx=db.transaction(STORE,mode), st=tx.objectStore(STORE);
+      let req;
+      try{ req=fn(st); }catch(e){reject(e);return;}
+      if(req&&typeof req.onsuccess!=='undefined'){
+        req.onsuccess=()=>resolve(req.result);
+        req.onerror=()=>reject(req.error);
+      }else{ tx.oncomplete=()=>resolve(true); tx.onerror=()=>reject(tx.error); }
+    }));
+  }
+  function esc(s){
+    if(typeof window.escapeHTML==='function') return window.escapeHTML(String(s||''));
+    return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  }
+  function fmtSize(n){
+    n=Number(n)||0;
+    if(n<1024) return n+' B';
+    if(n<1048576) return (n/1024).toFixed(0)+' KB';
+    if(n<1073741824) return (n/1048576).toFixed(1)+' MB';
+    return (n/1073741824).toFixed(2)+' GB';
+  }
+  function setStatus(t){ const el=document.getElementById('ebook-reader-status'); if(el) el.textContent=t; }
+
+  async function makeCover(blob){
+    if(!window.pdfjsLib) return '';
+    try{
+      const buf=await blob.arrayBuffer();
+      const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+      const page=await pdf.getPage(1);
+      const vp=page.getViewport({scale:1.15});
+      const scale=Math.min(600/vp.width,760/vp.height,1.7);
+      const v=page.getViewport({scale});
+      const c=document.createElement('canvas'); c.width=Math.ceil(v.width); c.height=Math.ceil(v.height);
+      await page.render({canvasContext:c.getContext('2d',{alpha:false}),viewport:v}).promise;
+      return c.toDataURL('image/jpeg',.84);
+    }catch(e){ console.warn('Không tạo được ảnh bìa:',e); return ''; }
+  }
+
+  async function importOne(file){
+    if(!file || file.type!=='application/pdf') throw new Error(file?.name+' không phải PDF.');
+    if(file.size>250*1024*1024) throw new Error(file.name+' lớn hơn 250 MB; nên dùng PDF nhỏ hơn để tránh chậm trình duyệt.');
+    const cover=await makeCover(file);
+    return dbTx('readwrite',st=>st.add({
+      name:file.name.replace(/\.pdf$/i,''), file:file, size:file.size, type:'application/pdf',
+      cover:cover, createdAt:Date.now(), updatedAt:Date.now()
+    }));
+  }
+
+  async function getAll(){ return dbTx('readonly',st=>st.getAll()).then(a=>(a||[]).sort((x,y)=>y.createdAt-x.createdAt)); }
+  async function getBook(id){ return dbTx('readonly',st=>st.get(Number(id))); }
+  async function delBook(id){ return dbTx('readwrite',st=>st.delete(Number(id))); }
+
+  window.openEbookLibrary=async function(){
+    const m=document.getElementById('ebook-library-modal'); if(!m) return;
+    m.style.display='flex';
+    await refresh();
+  };
+  window.closeEbookLibrary=function(){ const m=document.getElementById('ebook-library-modal'); if(m)m.style.display='none'; };
+  window.refreshEbookLibrary=refresh;
+
+  async function refresh(){
+    const box=document.getElementById('ebook-library-list'); if(!box)return;
+    box.innerHTML='<div class="ebook-empty">⏳ Đang tải thư viện...</div>';
+    try{
+      const books=await getAll();
+      if(!books.length){ box.innerHTML='<div class="ebook-empty">📖 Chưa có sách. Bấm <b>➕ Nạp file PDF</b> để tạo sách điện tử.</div>'; return; }
+      box.innerHTML=books.map(b=>`<div class="ebook-card">
+        <div class="ebook-cover">${b.cover?`<img src="${b.cover}" alt="Bìa ${esc(b.name)}">`:'<div class="ebook-cover-placeholder">📕</div>'}</div>
+        <div class="ebook-card-body"><div class="ebook-title">${esc(b.name)}</div><div class="ebook-meta">PDF • ${fmtSize(b.size)}</div>
+          <div class="ebook-card-actions"><button type="button" class="ebook-open-btn" data-ebook-open="${b.id}">📖 Xem sách</button><button type="button" class="ebook-delete-btn" data-ebook-del="${b.id}" title="Xóa sách">🗑️</button></div>
+        </div></div>`).join('');
+      box.querySelectorAll('[data-ebook-open]').forEach(btn=>btn.addEventListener('click',()=>openBook(Number(btn.dataset.ebookOpen))));
+      box.querySelectorAll('[data-ebook-del]').forEach(btn=>btn.addEventListener('click',async()=>{
+        const b=await getBook(Number(btn.dataset.ebookDel)); if(!b)return;
+        if(!confirm('Xóa sách “'+b.name+'” khỏi thư viện trên trình duyệt này?'))return;
+        await delBook(b.id); await refresh();
+      }));
+    }catch(e){ box.innerHTML='<div class="ebook-empty">❌ '+esc(e.message)+'</div>'; }
+  }
+
+  window.importEbookPDFs=async function(files){
+    if(!files||!files.length)return;
+    const arr=Array.from(files);
+    const box=document.getElementById('ebook-library-list');
+    if(box)box.innerHTML='<div class="ebook-empty">⏳ Đang tạo '+arr.length+' sách...<br><small>PDF lớn có thể mất vài giây để tạo bìa.</small></div>';
+    let ok=0, errs=[];
+    for(const f of arr){
+      try{ await importOne(f); ok++; }catch(e){ errs.push(f.name+': '+e.message); }
+    }
+    const input=document.getElementById('ebook-pdf-input'); if(input)input.value='';
+    await refresh();
+    if(errs.length) alert('Đã nạp '+ok+' sách.\n\nLỗi:\n'+errs.join('\n'));
+  };
+
+  async function openBook(id){
+    const b=await getBook(id); if(!b) return alert('Không tìm thấy sách.');
+    try{
+      if(!window.pdfjsLib) throw new Error('Chưa tải được PDF.js. Hãy kiểm tra kết nối Internet rồi tải lại trang.');
+      currentBook=b; currentSpread=0; currentZoom=1; flipping=false;
+      const modal=document.getElementById('ebook-reader-modal'); if(modal)modal.style.display='flex';
+      const title=document.getElementById('ebook-reader-title'); if(title)title.textContent=b.name;
+      const buf=await b.file.arrayBuffer();
+      currentPdf=await pdfjsLib.getDocument({data:buf,disableAutoFetch:true,disableStream:false}).promise;
+      const pi=document.getElementById('ebook-page-input'); if(pi){pi.max=currentPdf.numPages;pi.value=1;}
+      await renderSpread();
+    }catch(e){ console.error(e); alert('Không mở được sách: '+e.message); }
+  }
+
+  window.closeEbookReader=function(){
+    const m=document.getElementById('ebook-reader-modal'); if(m)m.style.display='none';
+    currentPdf=null; currentBook=null;
+  };
+
+  async function renderPage(pageNo,canvasId,numId){
+    const c=document.getElementById(canvasId), n=document.getElementById(numId); if(!c)return;
+    const ctx=c.getContext('2d',{alpha:false});
+    if(!currentPdf||pageNo<1||pageNo>currentPdf.numPages){ c.width=1;c.height=1; if(n)n.textContent=''; return; }
+    const page=await currentPdf.getPage(pageNo);
+    const holder=c.parentElement;
+    const maxW=Math.max(180,holder.clientWidth-8), maxH=Math.max(180,holder.clientHeight-8);
+    const base=page.getViewport({scale:1});
+    const fit=Math.min(maxW/base.width,maxH/base.height);
+    const quality=Math.min(window.devicePixelRatio||1,2.2);
+    const scale=Math.max(.45,fit*currentZoom*quality);
+    const vp=page.getViewport({scale});
+    c.width=Math.ceil(vp.width);c.height=Math.ceil(vp.height);
+    c.style.width=Math.round(vp.width/quality)+'px';c.style.height=Math.round(vp.height/quality)+'px';
+    await page.render({canvasContext:ctx,viewport:vp,background:'rgb(255,255,255)'}).promise;
+    if(n)n.textContent='Trang '+pageNo+' / '+currentPdf.numPages;
+  }
+
+  async function renderSpread(){
+    if(!currentPdf)return;
+    const leftNo=currentSpread*2+1, rightNo=leftNo+1;
+    setStatus('⏳ Đang render trang '+leftNo+(rightNo<=currentPdf.numPages?'–'+rightNo:'')+'...');
+    await Promise.all([renderPage(leftNo,'ebook-canvas-left','ebook-page-left-no'),renderPage(rightNo,'ebook-canvas-right','ebook-page-right-no')]);
+    const pi=document.getElementById('ebook-page-input'); if(pi)pi.value=leftNo;
+    setStatus('Trang '+leftNo+(rightNo<=currentPdf.numPages?'–'+rightNo:'')+' / '+currentPdf.numPages);
+  }
+
+  async function animateTurn(dir){
+    if(flipping||!currentPdf)return;
+    const maxSpread=Math.floor((currentPdf.numPages-1)/2);
+    const next=dir>0?currentSpread+1:currentSpread-1;
+    if(next<0||next>maxSpread)return;
+    flipping=true;
+    // Tạo lớp trang mô phỏng lật, đồng thời chuẩn bị spread mới ở nền.
+    const book=document.getElementById('ebook-book');
+    const layer=document.createElement('div');
+    layer.className='ebook-turn-layer '+(dir>0?'next':'prev');
+    const c=document.createElement('canvas'); layer.appendChild(c); book.appendChild(layer);
+    const sourcePage=dir>0?(currentSpread*2+2):(currentSpread*2+1);
+    const page=await currentPdf.getPage(Math.min(sourcePage,currentPdf.numPages));
+    const rect=layer.getBoundingClientRect();
+    const vp0=page.getViewport({scale:1});
+    const fit=Math.min(rect.width/vp0.width,rect.height/vp0.height);
+    const q=Math.min(window.devicePixelRatio||1,2.2);
+    const vp=page.getViewport({scale:Math.max(.45,fit*currentZoom*q)});
+    c.width=Math.ceil(vp.width);c.height=Math.ceil(vp.height);c.style.width='100%';c.style.height='100%';c.style.objectFit='contain';
+    await page.render({canvasContext:c.getContext('2d',{alpha:false}),viewport:vp,background:'rgb(255,255,255)'}).promise;
+    currentSpread=next;
+    await renderSpread();
+    // renderSpread cập nhật nền; sau đó lớp cũ lật đi.
+    requestAnimationFrame(()=>{
+      layer.classList.add(dir>0?'flip-next':'flip-prev');
+    });
+    setTimeout(()=>{layer.remove();flipping=false;},560);
+  }
+  window.ebookNext=function(){animateTurn(1);};
+  window.ebookPrev=function(){animateTurn(-1);};
+  window.ebookZoom=function(delta){
+    currentZoom=Math.max(.7,Math.min(2.4,currentZoom+(delta>0?.15:-.15)));
+    renderSpread();
+  };
+  window.ebookFit=function(){currentZoom=1;renderSpread();};
+  window.ebookGoPage=function(){
+    if(!currentPdf)return;
+    const el=document.getElementById('ebook-page-input');
+    let p=Math.max(1,Math.min(currentPdf.numPages,parseInt(el?.value||1,10)||1));
+    currentSpread=Math.floor((p-1)/2); renderSpread();
+  };
+  window.ebookFullscreen=function(){
+    const el=document.getElementById('ebook-reader-modal');
+    if(!document.fullscreenElement && el?.requestFullscreen) el.requestFullscreen().catch(()=>{});
+    else if(document.exitFullscreen) document.exitFullscreen().catch(()=>{});
+  };
+
+  // Click hai bên trang để lật, tiện hơn khi đọc sách.
+  document.addEventListener('click',e=>{
+    const r=e.target.closest?.('#ebook-book'); if(!r||flipping)return;
+    if(e.target.closest('button,input'))return;
+    const rect=r.getBoundingClientRect();
+    if(e.clientX>rect.left+rect.width/2) window.ebookNext(); else window.ebookPrev();
+  });
+  // Bàn phím: ←/→ để lật; +/− để zoom.
+  document.addEventListener('keydown',e=>{
+    const m=document.getElementById('ebook-reader-modal');
+    if(!m||m.style.display==='none')return;
+    if(e.key==='ArrowRight'){e.preventDefault();window.ebookNext();}
+    else if(e.key==='ArrowLeft'){e.preventDefault();window.ebookPrev();}
+    else if(e.key==='+'||e.key==='='){e.preventDefault();window.ebookZoom(1);}
+    else if(e.key==='-'){e.preventDefault();window.ebookZoom(-1);}
+    else if(e.key==='Escape'){window.closeEbookReader();}
+  });
+  // Touch swipe.
+  let touchX=0;
+  document.addEventListener('touchstart',e=>{if(e.touches?.length===1)touchX=e.touches[0].clientX;},{passive:true});
+  document.addEventListener('touchend',e=>{
+    const m=document.getElementById('ebook-reader-modal'); if(!m||m.style.display==='none')return;
+    if(!touchX||!e.changedTouches?.length)return;
+    const dx=e.changedTouches[0].clientX-touchX; touchX=0;
+    if(Math.abs(dx)>60){if(dx<0)window.ebookNext();else window.ebookPrev();}
+  },{passive:true});
+})();
+
