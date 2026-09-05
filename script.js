@@ -5758,7 +5758,7 @@ window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e
     let m=document.getElementById('v427-ebook-ai-modal');
     if(m)return m;
     m=document.createElement('div');m.id='v427-ebook-ai-modal';
-    m.style.cssText='display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10120;align-items:center;justify-content:center;padding:10px;box-sizing:border-box;';
+    m.style.cssText='display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:13050;align-items:center;justify-content:center;padding:10px;box-sizing:border-box;';
     m.innerHTML='<div style="width:min(1000px,100%);max-height:95vh;overflow:auto;background:#fff;border-radius:16px;padding:16px;box-sizing:border-box;color:#17212b">'+
       '<div style="display:flex;align-items:center;gap:8px;justify-content:space-between"><h2 style="margin:0;color:#0d6efd">🤖 Tạo trắc nghiệm từ sách</h2><button type="button" onclick="window.closeEbookAIQuiz()" style="padding:8px 12px;border:0;border-radius:8px;background:#6c757d;color:#fff;font-weight:700">✕ Đóng</button></div>'+ 
       '<div id="v427-ebook-ai-book" style="margin-top:8px;padding:9px;background:#eef6ff;border-radius:9px;font-size:.92em"></div>'+ 
@@ -5824,4 +5824,3 @@ window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e
     (async function(){try{let total=0;for(let i=0;i<chunks.length;i++){if(st)st.textContent='⏳ Đang lưu '+(i+1)+'/'+chunks.length+'...';const r=await window.v426AICall('ebookaisave',{maHS:maHS,subject:subject,mode:mode,bookName:String(b.name||''),pageStart:document.getElementById('v427-ai-page-start')?.value||'',pageEnd:document.getElementById('v427-ai-page-end')?.value||'',model:'gemini-3.6-flash',items:JSON.stringify(chunks[i])},60000);if(!r||!r.ok)throw new Error((r&&r.message)||'Không lưu được.');total+=Number(r.count||0);}if(st)st.textContent='✅ Đã lưu '+total+' câu vào ngân hàng '+subject+'.';try{if(typeof window.updateQuestionBank==='function')window.updateQuestionBank(true);}catch(e){}try{if(typeof window.updateMadeList==='function')window.updateMadeList();}catch(e){}}catch(e){if(st)st.textContent='❌ '+(e.message||e);}})();
   };
 })();
-
