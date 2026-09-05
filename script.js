@@ -5800,6 +5800,55 @@ window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e
     const rows=ebookAIBatch.map((q,i)=>'<div style="border:1px solid #ddd;border-radius:10px;padding:11px;margin-top:8px"><label style="display:flex;gap:7px"><input class="v427-ai-check" data-i="'+i+'" type="checkbox" checked style="width:19px;height:19px"><b>Câu '+(i+1)+' — '+esc(q.ChuDe||'')+' — '+esc(q.DoKho||'')+'</b></label><div style="margin-top:7px"><b>'+esc(q.CauHoi)+'</b></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:5px;margin-top:5px"><div>A. '+esc(q.DapAnA)+'</div><div>B. '+esc(q.DapAnB)+'</div><div>C. '+esc(q.DapAnC)+'</div><div>D. '+esc(q.DapAnD)+'</div></div><div style="margin-top:6px;color:#198754"><b>Đáp án '+esc(q.DapAnDung)+'</b> — '+esc(q.GiaiThich)+'</div></div>').join('');
     box.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><b>🔍 Xem trước '+ebookAIBatch.length+' câu</b><div><button type="button" onclick="document.querySelectorAll(\'#v427-ai-preview .v427-ai-check\').forEach(x=>x.checked=true)">Chọn tất cả</button> <button type="button" onclick="document.querySelectorAll(\'#v427-ai-preview .v427-ai-check\').forEach(x=>x.checked=false)">Bỏ chọn</button> <button type="button" onclick="window.saveEbookAIQuiz()" style="padding:7px 10px;background:#198754;color:#fff;border:0;border-radius:7px;font-weight:700">💾 Lưu ngân hàng</button></div></div>'+rows;
   }
+  async function renderAIPageImage(pageNo){
+    if(!currentPdf||pageNo<1||pageNo>currentPdf.numPages)throw new Error('Trang '+pageNo+' không hợp lệ.');
+    const page=pageCache.get(pageNo)||await currentPdf.getPage(pageNo);
+    pageCache.set(pageNo,page);
+    const base=page.getViewport({scale:1});
+    const maxW=1500,maxH=2100;
+    const scale=Math.max(.8,Math.min(maxW/base.width,maxH/base.height));
+    const vp=page.getViewport({scale:scale});
+    const c=document.createElement('canvas');c.width=Math.ceil(vp.width);c.height=Math.ceil(vp.height);
+    const ctx=c.getContext('2d',{alpha:false});
+    await page.render({canvasContext:ctx,viewport:vp,background:'rgb(255,255,255)'}).promise;
+    return c.toDataURL('image/jpeg',0.62);
+  }
+  async function postEbookAIPage(jobId,params,images){
+    const body=new URLSearchParams();
+    body.set('action','ebookaipage');body.set('jobId',jobId);
+    Object.keys(params).forEach(k=>body.set(k,params[k]==null?'':String(params[k])));
+    body.set('images',JSON.stringify(images));
+    // application/x-www-form-urlencoded is a CORS simple request, so the GitHub
+    // frontend can send the page image to Apps Script without exposing the API key.
+    await fetch(API_URL,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:body.toString(),keepalive:false});
+    for(let i=0;i<120;i++){
+      const r=await gasJsonp('ebookaipagejob',{jobId:jobId});
+      if(r&&r.status==='done')return r;
+      if(r&&r.status==='error')throw new Error(r.message||'Gemini không xử lý được ảnh trang sách.');
+      await new Promise(resolve=>setTimeout(resolve,1000));
+    }
+    throw new Error('Hết thời gian chờ Gemini xử lý trang sách.');
+  }
+  async function generateEbookAIFromPageImages(params,ps,pe,count,st){
+    const pages=[];for(let p=ps;p<=pe;p++)pages.push(p);
+    // Send a few pages per Gemini request. This keeps the POST body small while
+    // allowing Gemini to understand examples that continue across nearby pages.
+    const batchSize=3,batches=[];for(let i=0;i<pages.length;i+=batchSize)batches.push(pages.slice(i,i+batchSize));
+    let remaining=count,all=[],rejected=0,msgs=[];
+    for(let bi=0;bi<batches.length&&remaining>0;bi++){
+      const batch=batches[bi],n=Math.max(1,Math.min(20,Math.ceil(remaining/(batches.length-bi))));
+      if(st)st.textContent='⏳ Đang đọc ảnh trang '+batch[0]+'–'+batch[batch.length-1]+' ('+(bi+1)+'/'+batches.length+')...';
+      const images=[];
+      for(const pg of batch){
+        if(st)st.textContent='🖼️ Đang chuẩn bị ảnh trang '+pg+'...';
+        images.push({page:pg,data:await renderAIPageImage(pg)});
+      }
+      const jobId='v427_'+Date.now()+'_'+Math.random().toString(36).slice(2,10);
+      const r=await postEbookAIPage(jobId,{maHS:params.maHS,subject:params.subject,pageStart:ps,pageEnd:pe,count:n,level:params.level,topic:params.topic,dangBai:params.dangBai,custom:params.custom,mode:params.mode,bookName:params.bookName},images);
+      const qs=Array.isArray(r.questions)?r.questions:[];all=all.concat(qs);remaining=Math.max(0,remaining-qs.length);rejected+=Number(r.qualityRejected||0);if(r.qualityMessage)msgs.push(r.qualityMessage);
+    }
+    return {ok:true,questions:all.slice(0,count),qualityRejected:rejected,qualityMessage:msgs.join(' ')};
+  }
   window.generateEbookAIQuiz=function(){
     if(!window.isBaoAdmin||!window.isBaoAdmin()){alert('Chức năng này chỉ dành cho Bảo/Bao.');return;}
     const b=currentBook||{},bookId=String(b.id||b.remoteId||'');
@@ -5808,9 +5857,12 @@ window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e
     let ps=Math.max(1,Number(document.getElementById('v427-ai-page-start')?.value||1)),pe=Math.max(ps,Number(document.getElementById('v427-ai-page-end')?.value||ps));
     const maxPage=Number(currentPdf?.numPages||0);if(maxPage){ps=Math.min(ps,maxPage);pe=Math.min(pe,maxPage);}
     const btn=document.getElementById('v427-ai-generate'),st=document.getElementById('v427-ai-status');if(btn)btn.disabled=true;
-    if(st)st.textContent=mode==='api'?'⏳ Gemini API đang tạo câu hỏi...':'⏳ Gemini đang đọc PDF và tạo câu hỏi từ trang '+ps+'–'+pe+'...';
-    const params={maHS:(document.getElementById('student-code')||{}).value||localStorage.getItem('saved_maHS')||'',mode:mode,bookId:bookId,subject:(document.getElementById('v427-ai-subject')||{}).value||'Tiếng Anh',pageStart:ps,pageEnd:pe,count:(document.getElementById('v427-ai-count')||{}).value||10,level:(document.getElementById('v427-ai-level')||{}).value||'Trung bình',topic:(document.getElementById('v427-ai-topic')||{}).value||'',dangBai:(document.getElementById('v427-ai-type')||{}).value||'Trắc nghiệm 4 lựa chọn',custom:(document.getElementById('v427-ai-custom')||{}).value||''};
-    window.v426AICall('ebookaigenerate',params,180000).then(function(r){
+    const params={maHS:(document.getElementById('student-code')||{}).value||localStorage.getItem('saved_maHS')||'',mode:mode,bookId:bookId,bookName:String(b.name||''),subject:(document.getElementById('v427-ai-subject')||{}).value||'Tiếng Anh',pageStart:ps,pageEnd:pe,count:Number((document.getElementById('v427-ai-count')||{}).value||10),level:(document.getElementById('v427-ai-level')||{}).value||'Trung bình',topic:(document.getElementById('v427-ai-topic')||{}).value||'',dangBai:(document.getElementById('v427-ai-type')||{}).value||'Trắc nghiệm 4 lựa chọn',custom:(document.getElementById('v427-ai-custom')||{}).value||''};
+    const largeBook=Number(b.size||0)>50*1024*1024;
+    const promise=(mode==='api')?window.v426AICall('ebookaigenerate',params,180000):
+      (largeBook?generateEbookAIFromPageImages(params,ps,pe,params.count,st):window.v426AICall('ebookaigenerate',params,180000));
+    if(st)st.textContent=largeBook?'⚡ PDF lớn — AI sẽ đọc trực tiếp ảnh các trang đã chọn, không cần tải cả sách.':(mode==='api'?'⏳ Gemini API đang tạo câu hỏi...':'⏳ Gemini đang đọc PDF và tạo câu hỏi từ trang '+ps+'–'+pe+'...');
+    promise.then(function(r){
       if(!r||!r.ok)throw new Error((r&&r.message)||'AI không tạo được câu hỏi.');
       let msg='✅ Tạo được '+((r.questions||[]).length)+' câu.';if(r.qualityRejected)msg+=' Loại '+r.qualityRejected+' câu không đạt.';if(r.qualityMessage)msg+=' '+r.qualityMessage;if(st)st.textContent=msg;renderEbookAIPreview(r);
     }).catch(function(e){if(st)st.textContent='❌ '+(e.message||e);}).finally(function(){if(btn)btn.disabled=false;});
