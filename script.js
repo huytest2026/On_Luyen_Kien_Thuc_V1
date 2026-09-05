@@ -5740,5 +5740,80 @@ window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e
   document.addEventListener('click',e=>{const r=e.target.closest?.('#ebook-book');if(!r||flipping)return;if(e.target.closest('button,input'))return;const rect=r.getBoundingClientRect();if(e.clientX>rect.left+rect.width/2)window.ebookNext();else window.ebookPrev();});
   document.addEventListener('keydown',e=>{const m=document.getElementById('ebook-reader-modal');if(!m||m.style.display==='none')return;if(e.key==='ArrowRight'){e.preventDefault();window.ebookNext();}else if(e.key==='ArrowLeft'){e.preventDefault();window.ebookPrev();}else if(e.key==='+'||e.key==='='){e.preventDefault();window.ebookZoom(1);}else if(e.key==='-'){e.preventDefault();window.ebookZoom(-1);}else if(e.key==='Escape'){window.closeEbookReader();}});
   let touchX=0;document.addEventListener('touchstart',e=>{if(e.touches?.length===1)touchX=e.touches[0].clientX;},{passive:true});document.addEventListener('touchend',e=>{const m=document.getElementById('ebook-reader-modal');if(!m||m.style.display==='none')return;if(!touchX||!e.changedTouches?.length)return;const dx=e.changedTouches[0].clientX-touchX;touchX=0;if(Math.abs(dx)>60){if(dx<0)window.ebookNext();else window.ebookPrev();}},{passive:true});
+
+
+  // ------------------------------------------------------------
+  // V42.7 — AI tạo trắc nghiệm ngay trong trình đọc sách
+  // ------------------------------------------------------------
+  let ebookAIBatch=[];
+  function ebookAIModal(){
+    let m=document.getElementById('v427-ebook-ai-modal');
+    if(m)return m;
+    m=document.createElement('div');m.id='v427-ebook-ai-modal';
+    m.style.cssText='display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10120;align-items:center;justify-content:center;padding:10px;box-sizing:border-box;';
+    m.innerHTML='<div style="width:min(1000px,100%);max-height:95vh;overflow:auto;background:#fff;border-radius:16px;padding:16px;box-sizing:border-box;color:#17212b">'+
+      '<div style="display:flex;align-items:center;gap:8px;justify-content:space-between"><h2 style="margin:0;color:#0d6efd">🤖 Tạo trắc nghiệm từ sách</h2><button type="button" onclick="window.closeEbookAIQuiz()" style="padding:8px 12px;border:0;border-radius:8px;background:#6c757d;color:#fff;font-weight:700">✕ Đóng</button></div>'+ 
+      '<div id="v427-ebook-ai-book" style="margin-top:8px;padding:9px;background:#eef6ff;border-radius:9px;font-size:.92em"></div>'+ 
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:9px;margin-top:10px">'+
+        '<label>Nguồn<select id="v427-ai-source" style="width:100%;padding:9px;box-sizing:border-box"><option value="ebook">📖 Chỉ từ sách</option><option value="api">🌐 API/AI</option><option value="mixed">🔀 Sách + API/AI</option></select></label>'+ 
+        '<label>Môn<select id="v427-ai-subject" style="width:100%;padding:9px;box-sizing:border-box"><option>Tiếng Anh</option><option>Toán</option></select></label>'+ 
+        '<label>Từ trang<input id="v427-ai-page-start" type="number" min="1" value="1" style="width:100%;padding:9px;box-sizing:border-box"></label>'+ 
+        '<label>Đến trang<input id="v427-ai-page-end" type="number" min="1" value="1" style="width:100%;padding:9px;box-sizing:border-box"></label>'+ 
+        '<label>Số câu<select id="v427-ai-count" style="width:100%;padding:9px;box-sizing:border-box"><option>5</option><option selected>10</option><option>20</option><option>50</option></select></label>'+ 
+        '<label>Độ khó<select id="v427-ai-level" style="width:100%;padding:9px;box-sizing:border-box"><option>Dễ</option><option selected>Trung bình</option><option>Khó</option><option>Hỗn hợp</option></select></label>'+ 
+      '</div>'+ 
+      '<label style="display:block;margin-top:9px">Chủ đề (không bắt buộc)<input id="v427-ai-topic" placeholder="VD: Present perfect" style="width:100%;padding:9px;box-sizing:border-box"></label>'+ 
+      '<label style="display:block;margin-top:9px">Dạng bài<input id="v427-ai-type" value="Trắc nghiệm 4 lựa chọn" style="width:100%;padding:9px;box-sizing:border-box"></label>'+ 
+      '<label style="display:block;margin-top:9px">Yêu cầu bổ sung<textarea id="v427-ai-custom" rows="2" placeholder="VD: Ưu tiên câu vận dụng, bám sát ví dụ trong sách..." style="width:100%;padding:9px;box-sizing:border-box;resize:vertical"></textarea></label>'+ 
+      '<button id="v427-ai-generate" type="button" onclick="window.generateEbookAIQuiz()" style="width:100%;padding:12px;margin-top:10px;background:#0d6efd;color:#fff;border:0;border-radius:9px;font-weight:800">✨ Tạo câu hỏi</button>'+ 
+      '<div id="v427-ai-status" style="margin-top:9px;padding:9px;background:#f5f5f5;border-radius:9px">Sẵn sàng.</div>'+ 
+      '<div id="v427-ai-preview" style="margin-top:10px"></div>'+ 
+    '</div>';
+    document.body.appendChild(m);return m;
+  }
+  window.openEbookAIQuiz=function(){
+    if(!window.isBaoAdmin||!window.isBaoAdmin()){alert('Chức năng này chỉ dành cho Bảo/Bao.');return;}
+    const m=ebookAIModal(), subj=document.getElementById('v427-ai-subject');
+    const b=currentBook||{}, id=String(b.id||b.remoteId||'');
+    const page=Number(document.getElementById('ebook-page-input')?.value||1);
+    const title=document.getElementById('v427-ebook-ai-book');
+    if(title)title.innerHTML='📖 <b>'+esc(b.name||'Sách đang đọc')+'</b>'+(id?' • Drive ID: '+esc(id):'');
+    const ps=document.getElementById('v427-ai-page-start'),pe=document.getElementById('v427-ai-page-end');
+    if(ps)ps.value=page;if(pe)pe.value=page;
+    if(subj)subj.value=(document.getElementById('subject-select')||{}).value||'Tiếng Anh';
+    const st=document.getElementById('v427-ai-status');if(st)st.textContent='Sẵn sàng. Chọn nguồn và phạm vi trang.';
+    const box=document.getElementById('v427-ai-preview');if(box)box.innerHTML='';
+    m.style.display='flex';
+  };
+  window.closeEbookAIQuiz=function(){const m=document.getElementById('v427-ebook-ai-modal');if(m)m.style.display='none';};
+  function renderEbookAIPreview(data){
+    ebookAIBatch=(data.questions||[]).slice();const box=document.getElementById('v427-ai-preview');if(!box)return;
+    if(!ebookAIBatch.length){box.innerHTML='<div style="padding:11px;border:1px solid #ffc107;background:#fff8e1;border-radius:8px">⚠️ Không có câu đạt kiểm tra. '+esc(data.qualityMessage||'')+'</div>';return;}
+    const rows=ebookAIBatch.map((q,i)=>'<div style="border:1px solid #ddd;border-radius:10px;padding:11px;margin-top:8px"><label style="display:flex;gap:7px"><input class="v427-ai-check" data-i="'+i+'" type="checkbox" checked style="width:19px;height:19px"><b>Câu '+(i+1)+' — '+esc(q.ChuDe||'')+' — '+esc(q.DoKho||'')+'</b></label><div style="margin-top:7px"><b>'+esc(q.CauHoi)+'</b></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:5px;margin-top:5px"><div>A. '+esc(q.DapAnA)+'</div><div>B. '+esc(q.DapAnB)+'</div><div>C. '+esc(q.DapAnC)+'</div><div>D. '+esc(q.DapAnD)+'</div></div><div style="margin-top:6px;color:#198754"><b>Đáp án '+esc(q.DapAnDung)+'</b> — '+esc(q.GiaiThich)+'</div></div>').join('');
+    box.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><b>🔍 Xem trước '+ebookAIBatch.length+' câu</b><div><button type="button" onclick="document.querySelectorAll(\'#v427-ai-preview .v427-ai-check\').forEach(x=>x.checked=true)">Chọn tất cả</button> <button type="button" onclick="document.querySelectorAll(\'#v427-ai-preview .v427-ai-check\').forEach(x=>x.checked=false)">Bỏ chọn</button> <button type="button" onclick="window.saveEbookAIQuiz()" style="padding:7px 10px;background:#198754;color:#fff;border:0;border-radius:7px;font-weight:700">💾 Lưu ngân hàng</button></div></div>'+rows;
+  }
+  window.generateEbookAIQuiz=function(){
+    if(!window.isBaoAdmin||!window.isBaoAdmin()){alert('Chức năng này chỉ dành cho Bảo/Bao.');return;}
+    const b=currentBook||{},bookId=String(b.id||b.remoteId||'');
+    const mode=String(document.getElementById('v427-ai-source')?.value||'ebook');
+    if((mode==='ebook'||mode==='mixed')&&!bookId){alert('Không xác định được mã sách Google Drive. Hãy đóng và mở lại sách.');return;}
+    let ps=Math.max(1,Number(document.getElementById('v427-ai-page-start')?.value||1)),pe=Math.max(ps,Number(document.getElementById('v427-ai-page-end')?.value||ps));
+    const maxPage=Number(currentPdf?.numPages||0);if(maxPage){ps=Math.min(ps,maxPage);pe=Math.min(pe,maxPage);}
+    const btn=document.getElementById('v427-ai-generate'),st=document.getElementById('v427-ai-status');if(btn)btn.disabled=true;
+    if(st)st.textContent=mode==='api'?'⏳ Gemini API đang tạo câu hỏi...':'⏳ Gemini đang đọc PDF và tạo câu hỏi từ trang '+ps+'–'+pe+'...';
+    const params={maHS:(document.getElementById('student-code')||{}).value||localStorage.getItem('saved_maHS')||'',mode:mode,bookId:bookId,subject:(document.getElementById('v427-ai-subject')||{}).value||'Tiếng Anh',pageStart:ps,pageEnd:pe,count:(document.getElementById('v427-ai-count')||{}).value||10,level:(document.getElementById('v427-ai-level')||{}).value||'Trung bình',topic:(document.getElementById('v427-ai-topic')||{}).value||'',dangBai:(document.getElementById('v427-ai-type')||{}).value||'Trắc nghiệm 4 lựa chọn',custom:(document.getElementById('v427-ai-custom')||{}).value||''};
+    window.v426AICall('ebookaigenerate',params,180000).then(function(r){
+      if(!r||!r.ok)throw new Error((r&&r.message)||'AI không tạo được câu hỏi.');
+      let msg='✅ Tạo được '+((r.questions||[]).length)+' câu.';if(r.qualityRejected)msg+=' Loại '+r.qualityRejected+' câu không đạt.';if(r.qualityMessage)msg+=' '+r.qualityMessage;if(st)st.textContent=msg;renderEbookAIPreview(r);
+    }).catch(function(e){if(st)st.textContent='❌ '+(e.message||e);}).finally(function(){if(btn)btn.disabled=false;});
+  };
+  window.saveEbookAIQuiz=function(){
+    if(!ebookAIBatch.length){alert('Chưa có câu để lưu.');return;}
+    const selected=[];document.querySelectorAll('#v427-ai-preview .v427-ai-check:checked').forEach(function(c){const i=Number(c.dataset.i);if(ebookAIBatch[i])selected.push(ebookAIBatch[i]);});
+    if(!selected.length){alert('Chưa chọn câu nào.');return;}
+    const b=currentBook||{},mode=document.getElementById('v427-ai-source')?.value||'ebook';const subject=document.getElementById('v427-ai-subject')?.value||'Tiếng Anh';const maHS=(document.getElementById('student-code')||{}).value||localStorage.getItem('saved_maHS')||'';const st=document.getElementById('v427-ai-status');
+    const chunks=[];for(let i=0;i<selected.length;i+=5)chunks.push(selected.slice(i,i+5));
+    (async function(){try{let total=0;for(let i=0;i<chunks.length;i++){if(st)st.textContent='⏳ Đang lưu '+(i+1)+'/'+chunks.length+'...';const r=await window.v426AICall('ebookaisave',{maHS:maHS,subject:subject,mode:mode,bookName:String(b.name||''),pageStart:document.getElementById('v427-ai-page-start')?.value||'',pageEnd:document.getElementById('v427-ai-page-end')?.value||'',model:'gemini-3.6-flash',items:JSON.stringify(chunks[i])},60000);if(!r||!r.ok)throw new Error((r&&r.message)||'Không lưu được.');total+=Number(r.count||0);}if(st)st.textContent='✅ Đã lưu '+total+' câu vào ngân hàng '+subject+'.';try{if(typeof window.updateQuestionBank==='function')window.updateQuestionBank(true);}catch(e){}try{if(typeof window.updateMadeList==='function')window.updateMadeList();}catch(e){}}catch(e){if(st)st.textContent='❌ '+(e.message||e);}})();
+  };
 })();
 
