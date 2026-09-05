@@ -5490,8 +5490,12 @@ window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e
   window.openEbookUpload=function(){
     const ma=String(document.getElementById('student-code')?.value||'').trim();
     if(!ma||!/^bao$/i.test(ma.normalize('NFD').replace(/[\u0300-\u036f]/g,''))){alert('Chức năng nạp sách chung chỉ dành cho Bảo/Bao.\nHãy chọn mã học sinh Bảo trước.');return;}
+    // Mở popup khi trình duyệt cho phép; nếu popup bị chặn thì chuyển ngay sang trang nạp sách trong cùng tab.
+    // Như vậy người dùng không cần bật popup thủ công.
     const w=window.open(uploadUrl(),'_blank','noopener,width=760,height=650');
-    if(!w)alert('Trình duyệt đang chặn cửa sổ nạp sách. Hãy cho phép popup cho trang này.');
+    if(!w){
+      window.location.assign(uploadUrl());
+    }
   };
 
   async function getAll(){return dbTx('readonly',st=>st.getAll()).then(a=>(a||[]).sort((x,y)=>(y.createdAt||0)-(x.createdAt||0)));}
