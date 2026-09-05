@@ -519,6 +519,23 @@ window.stopPronunciationCheck = function() {
 
 // 1. Quản lý Tra từ điển (Đã tích hợp Anh - Việt)
 // 1. Quản lý Tra từ điển (Đã tích hợp Anh - Việt, Phiên âm & Phát âm)
+let dictionaryAutoCloseTimer = null;
+const DICTIONARY_AUTO_CLOSE_MS = 10000;
+
+function restartDictionaryAutoCloseTimer() {
+    if (dictionaryAutoCloseTimer) {
+        clearTimeout(dictionaryAutoCloseTimer);
+        dictionaryAutoCloseTimer = null;
+    }
+    dictionaryAutoCloseTimer = setTimeout(function() {
+        const modal = document.getElementById('dict-modal');
+        if (modal && modal.style.display === 'flex') {
+            modal.style.display = 'none';
+        }
+        dictionaryAutoCloseTimer = null;
+    }, DICTIONARY_AUTO_CLOSE_MS);
+}
+
 window.openDictionaryModal = function() {
     const modal = document.getElementById('dict-modal');
     if (modal) modal.style.display = 'flex';
@@ -535,6 +552,10 @@ window.openDictionaryModal = function() {
 
 window.closeDictionaryModal = function() {
     const modal = document.getElementById('dict-modal');
+    if (dictionaryAutoCloseTimer) {
+        clearTimeout(dictionaryAutoCloseTimer);
+        dictionaryAutoCloseTimer = null;
+    }
     if (modal) modal.style.display = 'none';
 };
 
@@ -1714,6 +1735,10 @@ window.lookupWord = async function(requestedWord = '') {
         resultBox.innerHTML = '<span style="color:red;">Vui lòng nhập từ cần tra!</span>';
         return;
     }
+
+    // V42.6.3: tính 10 giây kể từ lúc bấm/ra lệnh “Tra”.
+    // Mỗi lần tra từ mới sẽ tính lại từ đầu.
+    restartDictionaryAutoCloseTimer();
 
     // Ưu tiên quan hệ biến thể đã có sẵn trong dictionary offline.
     // Ví dụ: loved -> love, succeeded -> succeed, ran -> run.
@@ -3147,7 +3172,8 @@ function parseCustomDate(dateStr) {
 
 window.renderLeaderboard = function(subjectFilter = null) {
     const list = document.getElementById('ranking-list');
-    if (!list) return;
+    const modalList = document.getElementById('ranking-list-modal');
+    if (!list && !modalList) return;
     
     let activeSubject = subjectFilter && subjectFilter !== "-- Chọn môn --" ? subjectFilter : null;
     
@@ -3262,8 +3288,37 @@ window.renderLeaderboard = function(subjectFilter = null) {
     html += buildGroupHtml('🥉 Đồng (Có ít nhất 1 lần đạt 8 điểm trở lên và nhỏ hơn 9)', '#cd7f32', dongList);
     html += '</div>';
 
-    list.innerHTML = html;
+    if (list) list.innerHTML = html;
+    if (modalList) modalList.innerHTML = html;
 };
+
+// V42.6.3: Bảng xếp hạng chỉ mở khi người dùng yêu cầu.
+window.openRankingModal = function() {
+    const modal = document.getElementById('ranking-modal');
+    if (!modal) return;
+    const subjectSelect = document.getElementById('subject-select');
+    try {
+        window.renderLeaderboard(subjectSelect ? subjectSelect.value : '');
+    } catch (e) {}
+    modal.style.display = 'flex';
+};
+
+window.closeRankingModal = function() {
+    const modal = document.getElementById('ranking-modal');
+    if (modal) modal.style.display = 'none';
+};
+
+// Đóng modal xếp hạng khi bấm vùng nền hoặc phím Escape.
+document.addEventListener('click', function(event) {
+    const modal = document.getElementById('ranking-modal');
+    if (modal && event.target === modal) window.closeRankingModal();
+});
+document.addEventListener('keydown', function(event) {
+    if (event.key === 'Escape') {
+        const rankingModal = document.getElementById('ranking-modal');
+        if (rankingModal && rankingModal.style.display === 'flex') window.closeRankingModal();
+    }
+});
 
 function extractTopicFlexible(att) {
     let raw = att.chuDe || att['Chủ đề'] || att.topic || att.tieuDe || att.baiHoc || '';
