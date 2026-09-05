@@ -220,10 +220,11 @@ body.dark-mode .dict-v11-recent button { background:#2d2d2d; color:#eee; border-
         <button type="button" id="dark-mode-toggle" style="background: #e0a800; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 0.9em; white-space: nowrap;">🌙 Tối</button>
     </div>
 
-    <!-- DÒNG DƯỚI: CHỈ CÓ 2 NÚT MÁY TÍNH VÀ TRA TỪ -->
-    <div style="display: flex; gap: 10px; margin-bottom: 20px;">
-        <button type="button" onclick="window.openCalculatorModal()" style="flex: 1; background: #fd7e14; color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 0.95em; white-space: nowrap;">🧮 Máy tính</button>
-        <button type="button" onclick="window.openDictionaryModal()" style="flex: 1; background: #17a2b8; color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 0.95em; white-space: nowrap;">📖 Tra từ</button>
+    <!-- V42.6.3: DÒNG CÔNG CỤ GỌN - MÁY TÍNH / TRA TỪ / XẾP HẠNG -->
+    <div class="start-tools-row" aria-label="Công cụ hỗ trợ">
+        <button type="button" class="start-tool-btn start-tool-calc" onclick="window.openCalculatorModal()">🧮 Máy tính</button>
+        <button type="button" class="start-tool-btn start-tool-dict" onclick="window.openDictionaryModal()">📖 Tra từ</button>
+        <button type="button" class="start-tool-btn start-tool-ranking" onclick="window.openRankingModal()">🏆 Xem xếp hạng</button>
     </div>
     
     <label for="student-code">Mã học sinh:</label>
@@ -295,9 +296,20 @@ body.dark-mode .dict-v11-recent button { background:#2d2d2d; color:#eee; border-
 
     <button type="button" id="start-btn" onclick="window.startQuizWithToolCheck()" style="width: 100%; padding: 16px; background: #007bff; color: white; border: none; cursor: pointer; margin-top: 5px; border-radius: 8px; font-weight: bold; font-size: 1.2em;">Bắt Đầu Làm Bài</button>
 
-    <div id="leaderboard" style="margin-top: 25px; padding: 18px; border: 2px solid red; border-radius: 10px; background: #fff;">
-        <h3 style="color: red; margin-top: 0; font-size: 1.3em;">🏆 Bảng xếp hạng:</h3>
-        <div id="ranking-list"><p style="color: #666; font-size: 1.05em;">Chưa có dữ liệu xếp hạng.</p></div>
+    <!-- V42.6.3: BẢNG XẾP HẠNG KHÔNG CÒN CHIẾM CHỖ TRÊN TRANG CHÍNH -->
+    <div id="leaderboard" style="display:none;">
+        <div id="ranking-list"></div>
+    </div>
+</div>
+
+<!-- V42.6.3: MODAL BẢNG XẾP HẠNG -->
+<div id="ranking-modal" role="dialog" aria-modal="true" aria-labelledby="ranking-modal-title">
+    <div class="ranking-modal-content">
+        <div class="ranking-modal-header">
+            <h3 id="ranking-modal-title">🏆 Bảng xếp hạng</h3>
+            <button type="button" class="ranking-modal-close" onclick="window.closeRankingModal()" aria-label="Đóng">✕ Đóng</button>
+        </div>
+        <div id="ranking-list-modal"><p style="color:#666;font-size:1.05em;">Chưa có dữ liệu xếp hạng.</p></div>
     </div>
 </div>
 
