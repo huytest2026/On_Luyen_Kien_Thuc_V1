@@ -5437,7 +5437,7 @@ window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e
 (function(){
   'use strict';
   const DB_NAME='V4263_EBOOK_LIBRARY';
-  const DB_VERSION=2;
+  const DB_VERSION=3;
   const STORE='books';
   const CHUNK_BYTES=3*1024*1024;
   let dbPromise=null,currentBook=null,currentPdf=null,currentSpread=0,currentZoom=1,flipping=false;
@@ -5450,7 +5450,21 @@ window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e
       const req=indexedDB.open(DB_NAME,DB_VERSION);
       req.onupgradeneeded=e=>{
         const db=e.target.result;
-        let st=e.target.transaction.objectStoreNames.contains(STORE)?e.target.transaction.objectStore(STORE):db.createObjectStore(STORE,{keyPath:'id',autoIncrement:true});
+        let st;
+        if(e.target.transaction.objectStoreNames.contains(STORE)){
+          st=e.target.transaction.objectStore(STORE);
+          // Repair stores created by older V42 ebook builds. The old schema may
+          // have a non-auto-increment key, which causes add() to fail with
+          // 'key path yielded a value that is not a valid key'. Cache is only a
+          // local copy, so safely recreate the store when its schema is wrong.
+          const badKey = st.keyPath !== 'id' || !st.autoIncrement;
+          if(badKey){
+            db.deleteObjectStore(STORE);
+            st=db.createObjectStore(STORE,{keyPath:'id',autoIncrement:true});
+          }
+        }else{
+          st=db.createObjectStore(STORE,{keyPath:'id',autoIncrement:true});
+        }
         if(!st.indexNames.contains('name'))st.createIndex('name','name',{unique:false});
         if(!st.indexNames.contains('createdAt'))st.createIndex('createdAt','createdAt',{unique:false});
         if(!st.indexNames.contains('remoteId'))st.createIndex('remoteId','remoteId',{unique:true});
@@ -5509,7 +5523,9 @@ window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e
     const obj={name:String(meta.name||'Sách'),file:blob,size:blob.size,type:'application/pdf',remoteId,createdAt:meta.createdAt||Date.now(),updatedAt:meta.updatedAt||Date.now(),source:'drive'};
     // Store có keyPath='id' + autoIncrement. Khi thêm bản ghi mới tuyệt đối không
     // truyền id: undefined, vì IndexedDB sẽ báo Invalid key.
-    if(old&&old.id!=null){obj.id=old.id;return dbTx('readwrite',st=>st.put(obj));}
+    if(old&&Number.isFinite(Number(old.id))){obj.id=Number(old.id);return dbTx('readwrite',st=>st.put(obj));}
+    // Never send an undefined/non-key id to IndexedDB.
+    delete obj.id;
     return dbTx('readwrite',st=>st.add(obj));
   }
   async function delCachedRemote(id){const b=await getRemoteCached(id);if(b)return dbTx('readwrite',st=>st.delete(b.id));}
@@ -5622,3 +5638,4 @@ window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e
   document.addEventListener('keydown',e=>{const m=document.getElementById('ebook-reader-modal');if(!m||m.style.display==='none')return;if(e.key==='ArrowRight'){e.preventDefault();window.ebookNext();}else if(e.key==='ArrowLeft'){e.preventDefault();window.ebookPrev();}else if(e.key==='+'||e.key==='='){e.preventDefault();window.ebookZoom(1);}else if(e.key==='-'){e.preventDefault();window.ebookZoom(-1);}else if(e.key==='Escape'){window.closeEbookReader();}});
   let touchX=0;document.addEventListener('touchstart',e=>{if(e.touches?.length===1)touchX=e.touches[0].clientX;},{passive:true});document.addEventListener('touchend',e=>{const m=document.getElementById('ebook-reader-modal');if(!m||m.style.display==='none')return;if(!touchX||!e.changedTouches?.length)return;const dx=e.changedTouches[0].clientX-touchX;touchX=0;if(Math.abs(dx)>60){if(dx<0)window.ebookNext();else window.ebookPrev();}},{passive:true});
 })();
+
