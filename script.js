@@ -697,6 +697,14 @@ function buildOffline10KHTML(word, entry) {
 }
 
 async function enrichOfflineWordOnline(word, requestId, controller, resultBox, baseFormNotice = '') {
+    // V43.0.1: nếu V43 Exact đã có từ thì KHÔNG gọi DictionaryAPI/MYMemory nữa.
+    // Mục tiêu: tránh CORS/522, giảm request mạng và giữ luồng tra từ thật nhanh.
+    // Chỉ dùng hàm này khi muốn bổ sung dữ liệu online cho từ KHÔNG có dữ liệu V43.
+    try {
+        const exactV43 = await getOfflineDictionaryEntry(word);
+        if (exactV43) return false;
+    } catch (e) {}
+
     // V14: cập nhật lớp dữ liệu online lên bản Offline hiện tại; không thay thế
     // toàn bộ kết quả bằng cache cũ trong quá trình này.
     try {
@@ -860,7 +868,7 @@ function dictV11RememberRecent(word) {
 
 // ==========================================
 // V34 HYBRID SMART DICTIONARY
-// Offline 200K -> Learned local -> Apps Script online -> browser cache.
+// V43 Exact 300K -> Apps Script exact fallback -> Dictionary API chỉ khi V43 không có.
 // ==========================================
 const DICT_V34_LEARNED_DB = 'EnglishDictionaryLearnedV34';
 const DICT_V34_LEARNED_STORE = 'entries';
@@ -1810,7 +1818,7 @@ window.lookupWord = async function(requestedWord = '') {
     };
 
     // Hiển thị trạng thái tức thì, không để người dùng tưởng ứng dụng bị đơ.
-    showResult('<div class="dict-v11-loading"><b>⚡ Đang tra Offline 200K...</b><div class="dict-v11-skeleton"><span></span><span></span><span></span></div></div>');
+    showResult('<div class="dict-v11-loading"><b>⚡ Đang tra V43 · 300K từ...</b><div class="dict-v11-skeleton"><span></span><span></span><span></span></div></div>');
 
     let offlineRequestedEntry = null;
     try {
