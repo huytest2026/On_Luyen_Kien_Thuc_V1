@@ -549,6 +549,7 @@ body.dark-mode-active .container#start-screen label{ color:#eef6f8 !important; }
 .ebook-meta{font-size:.8em;color:#74808a;}
 .ebook-card-actions{display:grid;grid-template-columns:1fr auto;gap:6px;margin-top:auto;}
 .ebook-open-btn{border:0;border-radius:8px;padding:9px;background:#0d6efd;color:#fff;font-weight:700;cursor:pointer;}
+.ebook-wrong-btn{border:0;border-radius:8px;padding:9px;background:#dc3545;color:#fff;font-weight:700;cursor:pointer;}
 .ebook-delete-btn{border:0;border-radius:8px;padding:9px;background:#dc3545;color:#fff;font-weight:700;cursor:pointer;}
 .ebook-empty{grid-column:1/-1;text-align:center;padding:45px 20px;color:#697780;background:#fff;border:1px dashed #c8d2d8;border-radius:12px;}
 
@@ -663,7 +664,9 @@ body.dark-mode #ebook-library-modal .ebook-title{color:#fff;}
 
     <!-- V40: XEM NGÂN HÀNG CÂU HỎI, độc lập với BT/Questions -->
     <div id="bao-admin-tools" style="display:none;">
-    <button type="button" onclick="window.toggleQuestionBank()" style="width:100%;padding:11px;background:#198754;color:#fff;border:none;border-radius:8px;font-weight:bold;font-size:1em;margin-top:10px;cursor:pointer;">📚 Xem ngân hàng câu hỏi</button>
+    <button type="button" id="btn-bao-admin-toggle" onclick="window.toggleBaoAdminButtons()" style="width:100%;padding:9px;background:#6c757d;color:#fff;border:none;border-radius:8px;font-weight:bold;font-size:.95em;margin-top:10px;cursor:pointer;">⚙️ Ẩn các nút quản trị</button>
+    <div id="bao-admin-actions" class="bao-admin-actions">
+    <button type="button" id="btn-xem-ngan-hang" class="bao-advanced-action" onclick="window.toggleQuestionBank()" style="width:100%;padding:11px;background:#198754;color:#fff;border:none;border-radius:8px;font-weight:bold;font-size:1em;margin-top:10px;cursor:pointer;">📚 Xem ngân hàng câu hỏi</button>
     <div id="question-bank-panel" style="display:none;margin-top:10px;background:#fff;padding:14px;border:1px solid #198754;border-radius:8px;">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
             <b style="color:#198754;">Ngân hàng câu hỏi V40</b>
@@ -679,7 +682,8 @@ body.dark-mode #ebook-library-modal .ebook-title{color:#fff;}
     </div>
 
     <!-- V41: TẠO ĐỀ TỰ ĐỘNG TỪ NGÂN HÀNG -->
-    <button type="button" id="btn-tao-de-v41" onclick="window.openV41ExamGenerator()" style="width:100%;padding:12px;background:#6f42c1;color:#fff;border:none;border-radius:8px;font-weight:bold;font-size:1em;margin-top:10px;cursor:pointer;">🎯 Tạo đề tự động từ ngân hàng V41</button>
+    <button type="button" id="btn-tao-de-v41" class="bao-advanced-action" onclick="window.openV41ExamGenerator()" style="width:100%;padding:12px;background:#6f42c1;color:#fff;border:none;border-radius:8px;font-weight:bold;font-size:1em;margin-top:10px;cursor:pointer;">🎯 Tạo đề tự động từ ngân hàng V41</button>
+    </div>
     </div>
 
     <button type="button" id="start-btn" onclick="window.startQuizWithToolCheck()" style="width: 100%; padding: 16px; background: #007bff; color: white; border: none; cursor: pointer; margin-top: 5px; border-radius: 8px; font-weight: bold; font-size: 1.2em;">Bắt Đầu Làm Bài</button>
