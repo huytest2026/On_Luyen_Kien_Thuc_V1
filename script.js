@@ -565,8 +565,8 @@ function dictV11NormalizeWord(value) {
 // ==========================================
 const V16_DICT_DB_NAME = 'EnglishDictionaryOffline200K_V34';
 const V16_DICT_STORE = 'shards';
-const V16_DICT_VERSION = 43;
-const V16_DICT_BUILD = 'V42.7.9';
+const V16_DICT_VERSION = 44;
+const V16_DICT_BUILD = 'V42.8.0';
 const V16_DICT_PATH = 'dictionary-200k/core2/';
 const V16_DICT_COUNT = 300000;
 const V16_DICT_VERSION_LABEL = 'V42.4-DICT-200K-2026.09';
@@ -584,10 +584,13 @@ function v16OpenDictDB() {
             const oldVersion = Number(event.oldVersion || 0);
             if (!db.objectStoreNames.contains(V16_DICT_STORE)) {
                 db.createObjectStore(V16_DICT_STORE, { keyPath: 'id' });
-            } else if (oldVersion < 43) {
-                // V42.7.9: xoá shard cũ trên Safari/iPad để loại cache có thể bị
-                // lỗi/cũ sau nhiều lần nâng cấp. Shard sẽ được tải lại khi cần.
-                try { db.transaction(V16_DICT_STORE, 'readwrite').objectStore(V16_DICT_STORE).clear(); } catch (e) {}
+            } else if (oldVersion < 44) {
+                // V42.8.0: reset hẳn objectStore cũ trong versionchange transaction.
+                // Cách này ổn định hơn clear() trên Safari/iPad và loại cache shard lỗi.
+                try {
+                    db.deleteObjectStore(V16_DICT_STORE);
+                    db.createObjectStore(V16_DICT_STORE, { keyPath: 'id' });
+                } catch (e) {}
             }
         };
         req.onsuccess = () => resolve(req.result);
@@ -739,6 +742,19 @@ async function getOfflineDictionaryEntry(word) {
     if (!entry) {
         data = await v16LoadShard(shard, true);
         entry = data && typeof data === 'object' ? data[key] : null;
+    }
+
+    // V42.8.0: fallback cuối cho Safari/iPad. Không cần tải cả shard ở máy
+    // nữa; Apps Script lấy đúng 1 entry từ GitHub server-side. Điều này xử lý
+    // trường hợp Safari chặn/cached lỗi JSON shard hoặc IndexedDB không ổn định.
+    if (!entry && DICT_V34_BACKEND) {
+        try {
+            const payload = await dictV34BackendEntryLookupJSONP(key, 7000);
+            if (payload && payload.ok && payload.entry) {
+                entry = payload.entry;
+                if (payload.translation && !Array.isArray(entry.vi)) entry.vi = [payload.translation];
+            }
+        } catch (e) {}
     }
     return entry || null;
 }
@@ -1015,6 +1031,39 @@ function dictV34WordFromUrl(url) {
     } catch (e) {}
     return '';
 }
+function dictV34BackendEntryLookupJSONP(word, timeoutMs = 7000) {
+    return new Promise((resolve, reject) => {
+        if (!DICT_V34_BACKEND) return reject(new Error('Chưa cấu hình Apps Script backend'));
+        const cb = '__dictEntry_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+        const script = document.createElement('script');
+        let timer = null;
+        let done = false;
+        const cleanup = () => {
+            if (done) return;
+            done = true;
+            if (timer) clearTimeout(timer);
+            try { delete window[cb]; } catch (e) { window[cb] = undefined; }
+            if (script.parentNode) script.parentNode.removeChild(script);
+        };
+        window[cb] = payload => {
+            cleanup();
+            if (!payload || payload.ok === false) return reject(new Error(payload?.error || 'Không có dữ liệu'));
+            resolve(payload);
+        };
+        script.onerror = () => { cleanup(); reject(new Error('JSONP dictionary entry không phản hồi')); };
+        try {
+            const u = new URL(DICT_V34_BACKEND);
+            u.searchParams.set('action', 'dictionaryentry');
+            u.searchParams.set('word', dictV11NormalizeWord(word));
+            u.searchParams.set('callback', cb);
+            u.searchParams.set('v', V16_DICT_BUILD);
+            script.src = u.href;
+            (document.head || document.documentElement).appendChild(script);
+            timer = setTimeout(() => { cleanup(); reject(new Error('Timeout dictionary entry backend')); }, timeoutMs);
+        } catch (e) { cleanup(); reject(e); }
+    });
+}
+
 function dictV34BackendLookupJSONP(word, kind, timeoutMs = 6000, externalSignal = null) {
     return new Promise((resolve, reject) => {
         if (!DICT_V34_BACKEND) return reject(new Error('Chưa cấu hình Apps Script backend'));
