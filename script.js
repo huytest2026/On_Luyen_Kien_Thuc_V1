@@ -5959,3 +5959,136 @@ window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e
     (async function(){try{let total=0;for(let i=0;i<chunks.length;i++){if(st)st.textContent='⏳ Đang lưu '+(i+1)+'/'+chunks.length+'...';const r=await window.v426AICall('ebookaisave',{maHS:maHS,subject:subject,mode:mode,bookName:String(b.name||''),pageStart:document.getElementById('v427-ai-page-start')?.value||'',pageEnd:document.getElementById('v427-ai-page-end')?.value||'',model:'gemini-3.6-flash',items:JSON.stringify(chunks[i])},60000);if(!r||!r.ok)throw new Error((r&&r.message)||'Không lưu được.');total+=Number(r.count||0);}if(st)st.textContent='✅ Đã lưu '+total+' câu vào sheet riêng '+(subject==='Toán'?'NGAN_HANG_EBOOK_TOAN':'NGAN_HANG_EBOOK_TIENG_ANH')+'.';try{if(typeof window.updateQuestionBank==='function')window.updateQuestionBank(true);}catch(e){}try{if(typeof window.updateMadeList==='function')window.updateMadeList();}catch(e){}}catch(e){if(st)st.textContent='❌ '+(e.message||e);}})();
   };
 })();
+
+/* ============================================================
+ * V43.0 TOEIC LISTENING ENGINE — Part 1 → Part 4
+ * Data source: Google Sheet NGAN_HANG_TOEIC_LISTENING
+ * Fields: MaCau, Part, GroupID, CauSo, ChuDe, DangBai, DoKho,
+ * CauHoi, DapAnA-D, DapAnDung, AudioURL, ImageURL, Transcript,
+ * GiaiThich, TenSach, Nguon, Trang, TrangThai, GhiChu
+ * ============================================================ */
+(function(){
+  'use strict';
+  let toeicBank=[];
+  let toeicQuiz=[];
+  let toeicAnswers={};
+  let toeicMode='practice';
+  let toeicStartedAt=0;
+  let toeicPlayedGroups={};
+  let toeicCurrentIndex=0;
+
+  function toeicEsc(v){
+    if(typeof window.esc==='function') return window.esc(String(v==null?'':v));
+    return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});
+  }
+  function toeicJsonp(action,params={}){
+    return new Promise((resolve,reject)=>{
+      const cb='__toeicCb_'+Date.now()+'_'+Math.random().toString(36).slice(2);
+      const sc=document.createElement('script');
+      const q=new URLSearchParams(Object.assign({},params,{action,callback:cb,v:'43.0'}));
+      let done=false;
+      const timer=setTimeout(()=>finish(new Error('Hết thời gian kết nối máy chủ.')),12000);
+      function finish(err,data){if(done)return;done=true;clearTimeout(timer);try{delete window[cb];}catch(e){}sc.remove();err?reject(err):resolve(data);}
+      window[cb]=d=>finish(null,d);
+      sc.onerror=()=>finish(new Error('Không kết nối được máy chủ TOEIC.'));
+      sc.src=API_URL+'?'+q.toString();document.head.appendChild(sc);
+    });
+  }
+  function toeicStudent(){return String(document.getElementById('student-code')?.value||localStorage.getItem('saved_maHS')||'').trim();}
+  function toeicSetStatus(t){const e=document.getElementById('toeic-status');if(e)e.textContent=t;}
+  function toeicPartRank(p){return Number(String(p||'').replace(/[^0-9]/g,''))||99;}
+  function toeicGroupKey(q){return String(q.GroupID||q.MaCau||'').trim()||String(q.CauSo||'');}
+  function toeicShuffle(a){
+    const x=a.slice();for(let i=x.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[x[i],x[j]]=[x[j],x[i]];}return x;
+  }
+  function toeicBuildQuiz(items,count,part){
+    const filtered=items.filter(q=>!part||String(q.Part).trim()===part);
+    const byPart={};filtered.forEach(q=>(byPart[q.Part]||(byPart[q.Part]=[])).push(q));
+    let out=[];
+    Object.keys(byPart).sort((a,b)=>toeicPartRank(a)-toeicPartRank(b)).forEach(p=>{
+      const groups={};byPart[p].forEach(q=>(groups[toeicGroupKey(q)]||(groups[toeicGroupKey(q)]=[])).push(q));
+      let gs=Object.keys(groups).map(k=>groups[k].sort((a,b)=>(Number(a.CauSo)||0)-(Number(b.CauSo)||0)));
+      gs=toeicShuffle(gs);
+      gs.forEach(g=>out.push(...g));
+    });
+    return out.slice(0,Math.max(1,count||10));
+  }
+  function toeicRenderQuestion(i){
+    const q=toeicQuiz[i];if(!q)return;
+    toeicCurrentIndex=i;
+    const box=document.getElementById('toeic-quiz');if(!box)return;
+    const ans=String(toeicAnswers[q.MaCau]||'').toUpperCase();
+    const opts=[['A',q.DapAnA],['B',q.DapAnB],['C',q.DapAnC],['D',q.DapAnD]];
+    const group=toeicGroupKey(q), audio=String(q.AudioURL||'').trim();
+    const transcript=String(q.Transcript||'').trim();
+    const isPractice=toeicMode==='practice';
+    let image=String(q.ImageURL||'').trim();
+    let html='<div class="toeic-q">';
+    html+='<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><h3>🎧 '+toeicEsc(q.Part)+' — Câu '+(q.CauSo||i+1)+'</h3><span style="color:#66737c">'+(i+1)+' / '+toeicQuiz.length+'</span></div>';
+    if(q.ChuDe)html+='<div style="font-size:.85em;color:#6c757d;margin-bottom:6px">'+toeicEsc(q.ChuDe)+'</div>';
+    if(image)html+='<img class="toeic-image" src="'+toeicEsc(image)+'" alt="TOEIC Part 1 photograph" loading="eager">';
+    if(q.CauHoi)html+='<div style="font-size:1.12em;font-weight:700;margin:9px 0">'+toeicEsc(q.CauHoi)+'</div>';
+    if(audio){
+      html+='<audio id="toeic-audio" class="toeic-audio" controls preload="metadata" src="'+toeicEsc(audio)+'"></audio>';
+      html+='<button type="button" id="toeic-play-btn" style="padding:8px 12px;border:0;border-radius:8px;background:#0d6efd;color:#fff;font-weight:700;cursor:pointer">🔊 Phát audio</button>';
+      if(toeicPlayedGroups[group])html+='<span style="margin-left:8px;color:#198754;font-size:.85em">Đã phát</span>';
+    }else html+='<div style="padding:9px;background:#fff3cd;border-radius:8px;color:#664d03">⚠️ Chưa có AudioURL cho câu này.</div>';
+    opts.forEach(function(o){html+='<label class="toeic-opt"><input type="radio" name="toeic-answer" value="'+o[0]+'" '+(ans===o[0]?'checked':'')+'>'+o[0]+'. '+toeicEsc(o[1])+'</label>';});
+    if(isPractice && transcript)html+='<details class="toeic-transcript"><summary>📝 Xem transcript</summary>'+toeicEsc(transcript)+'</details>';
+    html+='<div style="display:flex;gap:8px;margin-top:10px"><button type="button" id="toeic-prev" style="flex:1;padding:10px;border:0;border-radius:8px;background:#6c757d;color:#fff;font-weight:700" '+(i===0?'disabled':'')+'>◀ Trước</button><button type="button" id="toeic-next" style="flex:1;padding:10px;border:0;border-radius:8px;background:#198754;color:#fff;font-weight:700">'+(i===toeicQuiz.length-1?'🏁 Nộp bài':'Tiếp ▶')+'</button></div>';
+    html+='</div>';
+    box.innerHTML=html;
+    box.querySelectorAll('input[name="toeic-answer"]').forEach(el=>el.addEventListener('change',()=>{toeicAnswers[q.MaCau]=el.value;}));
+    const audioEl=document.getElementById('toeic-audio'), playBtn=document.getElementById('toeic-play-btn');
+    if(playBtn&&audioEl)playBtn.onclick=()=>{toeicPlayedGroups[group]=true;audioEl.play().then(()=>{playBtn.textContent='🔊 Đang phát...';}).catch(()=>{playBtn.textContent='▶ Nhấn để phát audio';});};
+    if(audioEl){audioEl.onplay=()=>{toeicPlayedGroups[group]=true;if(playBtn)playBtn.textContent='🔊 Đang phát...';};audioEl.onended=()=>{if(playBtn)playBtn.textContent='🔊 Phát lại audio';};}
+    const prev=document.getElementById('toeic-prev'),next=document.getElementById('toeic-next');
+    if(prev)prev.onclick=()=>{toeicSaveVisibleAnswer();toeicRenderQuestion(i-1);};
+    if(next)next.onclick=()=>{toeicSaveVisibleAnswer();if(i===toeicQuiz.length-1)toeicSubmit();else toeicRenderQuestion(i+1);};
+    // Try once; browser may block autoplay, in which case the visible button remains.
+    if(audioEl&&!toeicPlayedGroups[group])setTimeout(()=>audioEl.play().catch(()=>{}),180);
+  }
+  function toeicSaveVisibleAnswer(){const q=toeicQuiz[toeicCurrentIndex],el=document.querySelector('#toeic-quiz input[name="toeic-answer"]:checked');if(q&&el)toeicAnswers[q.MaCau]=el.value;}
+  function toeicDetails(){
+    return toeicQuiz.map((q,i)=>({index:i+1,question:q.CauHoi||('Câu '+(i+1)),userAnswer:toeicAnswers[q.MaCau]||'',correctAnswer:q.DapAnDung||'',isCorrect:String(toeicAnswers[q.MaCau]||'').toUpperCase()===String(q.DapAnDung||'').toUpperCase(),topic:q.ChuDe||('TOEIC '+q.Part),source:'TOEIC',questionKey:q.MaCau||'',part:q.Part||'',groupId:q.GroupID||''}));
+  }
+  async function toeicSubmit(){
+    toeicSaveVisibleAnswer();
+    const details=toeicDetails(),correct=details.filter(x=>x.isCorrect).length,total=details.length,score=total?Math.round(correct/total*100)/10:0;
+    const byPart={};details.forEach(x=>{byPart[x.part]||(byPart[x.part]={c:0,t:0});byPart[x.part].t++;if(x.isCorrect)byPart[x.part].c++;});
+    const res=document.getElementById('toeic-result');
+    if(res){res.style.display='block';res.innerHTML='<h3 style="margin-top:0">🎯 Kết quả TOEIC Listening</h3><div style="font-size:1.3em;font-weight:800">'+correct+' / '+total+' câu đúng</div><div style="font-size:1.15em;margin-top:5px">Điểm quy đổi nội bộ: '+score+' / 10</div><div style="margin-top:10px">'+Object.keys(byPart).sort((a,b)=>toeicPartRank(a)-toeicPartRank(b)).map(p=>'<b>'+toeicEsc(p)+':</b> '+byPart[p].c+'/'+byPart[p].t).join(' &nbsp; ')+'</div>'+(toeicMode==='practice'?'<div style="margin-top:10px;color:#66737c">💡 Chế độ luyện: transcript được mở trong từng câu.</div>':'')+'</div>';}
+    const maHS=toeicStudent();
+    if(maHS){
+      try{await fetch(API_URL,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:JSON.stringify({maHS,mon:'TOEIC Listening',score,level:'TOEIC',chuDe:'Part 1-4',made:'TOEIC Listening',details})});}catch(e){console.warn('TOEIC submit',e);}
+    }
+    const setup=document.getElementById('toeic-setup');if(setup)setup.style.display='block';
+    toeicSetStatus('✅ Đã hoàn thành bài TOEIC Listening.');
+    window.scrollTo({top:0,behavior:'smooth'});
+  }
+  window.openToeicListening=function(){
+    const m=document.getElementById('toeic-listening-modal');if(!m)return;
+    m.style.display='flex';
+    const admin=document.getElementById('toeic-admin-box');if(admin)admin.style.display=(window.isBaoAdmin&&window.isBaoAdmin())?'block':'none';
+    toeicSetStatus('⏳ Đang tải ngân hàng TOEIC Listening...');
+    const q=document.getElementById('toeic-quiz');if(q){q.style.display='none';q.innerHTML='';}
+    const r=document.getElementById('toeic-result');if(r){r.style.display='none';r.innerHTML='';}
+    toeicJsonp('toeicbank',{}).then(data=>{toeicBank=Array.isArray(data?.items)?data.items:[];toeicSetStatus(toeicBank.length?'✅ Đã tải '+toeicBank.length+' câu TOEIC.':'⚠️ Ngân hàng đang trống. Bảo hãy tạo sheet và nhập dữ liệu.');}).catch(e=>toeicSetStatus('❌ '+e.message));
+  };
+  window.closeToeicListening=function(){const m=document.getElementById('toeic-listening-modal');if(m)m.style.display='none';};
+  window.initToeicBank=function(){const ma=toeicStudent()||'Bảo';toeicJsonp('toeicinit',{maHS:ma}).then(r=>toeicSetStatus(r.ok?'✅ Sheet '+r.sheet+' đã sẵn sàng. Có '+r.count+' câu.':'❌ '+(r.message||'Không thực hiện được.'))).catch(e=>toeicSetStatus('❌ '+e.message));};
+  window.startToeicListening=function(){
+    const part=document.getElementById('toeic-part')?.value||'';toeicMode=document.getElementById('toeic-mode')?.value||'practice';const count=Number(document.getElementById('toeic-count')?.value||10);const topic=String(document.getElementById('toeic-topic')?.value||'').trim();
+    if(!toeicBank.length){toeicSetStatus('⚠️ Chưa có câu hỏi TOEIC. Hãy tạo sheet và nhập dữ liệu trước.');return;}
+    let pool=toeicBank.filter(q=>!topic||String(q.ChuDe||'').toLowerCase().includes(topic.toLowerCase()));
+    toeicQuiz=toeicBuildQuiz(pool,count,part);
+    if(!toeicQuiz.length){toeicSetStatus('⚠️ Không có câu phù hợp bộ lọc.');return;}
+    toeicAnswers={};toeicPlayedGroups={};toeicCurrentIndex=0;toeicStartedAt=Date.now();
+    const setup=document.getElementById('toeic-setup');if(setup)setup.style.display='none';
+    const qbox=document.getElementById('toeic-quiz');if(qbox)qbox.style.display='block';
+    const result=document.getElementById('toeic-result');if(result)result.style.display='none';
+    toeicRenderQuestion(0);
+    toeicSetStatus('🎧 Đang làm '+toeicQuiz.length+' câu • '+(part||'Part 1 → 4')+' • '+(toeicMode==='exam'?'Chế độ thi':'Chế độ luyện'));
+  };
+  document.addEventListener('click',function(e){if(e.target?.id==='toeic-listening-modal'&&e.target===e.currentTarget)window.closeToeicListening();});
+})();
