@@ -629,17 +629,36 @@ async function v16LoadShard(shard) {
     if (V16_DICT_LOADING.has(shard)) return V16_DICT_LOADING.get(shard);
 
     const promise = (async () => {
-        let data = await v16ReadShardFromIDB(shard);
+        // Safari/iPad: IndexedDB có thể trả lỗi/quota hoặc cache cũ; luôn thử tiếp
+        // mạng thay vì coi lỗi đó là "không có từ".
+        let data = await v16ReadShardFromIDB(shard).catch(() => null);
+
         if (!data) {
+            const shardName = `${shard}.json`;
+            const urls = [];
             try {
-                const response = await fetch(`${V16_DICT_PATH}${shard}.json`, { cache: 'force-cache' });
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                data = await response.json();
-                v16WriteShardToIDB(shard, data).catch(() => {});
-            } catch (e) {
-                data = null;
+                // URL tuyệt đối từ baseURI ổn định hơn URL tương đối trên Safari/iPad.
+                urls.push(new URL(V16_DICT_PATH + shardName, document.baseURI).href);
+            } catch (e) {}
+            urls.push(V16_DICT_PATH + shardName);
+
+            // Lần 1: cache hiện có. Lần 2: no-store để vượt cache lỗi trên Safari.
+            for (const [idx, url] of urls.entries()) {
+                try {
+                    const response = await fetch(url, {
+                        cache: idx === 0 ? 'force-cache' : 'no-store',
+                        credentials: 'omit'
+                    });
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    data = await response.json();
+                    if (data && typeof data === 'object') {
+                        v16WriteShardToIDB(shard, data).catch(() => {});
+                        break;
+                    }
+                } catch (e) {}
             }
         }
+
         if (data) V16_DICT_MEMORY.set(shard, data);
         return data;
     })();
@@ -931,6 +950,45 @@ function dictV34WordFromUrl(url) {
     } catch (e) {}
     return '';
 }
+function dictV34BackendLookupJSONP(word, kind, timeoutMs = 6000, externalSignal = null) {
+    return new Promise((resolve, reject) => {
+        if (!DICT_V34_BACKEND) return reject(new Error('Chưa cấu hình Apps Script backend'));
+        const cb = '__dictV34_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+        const script = document.createElement('script');
+        let timer = null;
+        let done = false;
+        const cleanup = () => {
+            if (done) return;
+            done = true;
+            if (timer) clearTimeout(timer);
+            try { delete window[cb]; } catch (e) { window[cb] = undefined; }
+            if (script.parentNode) script.parentNode.removeChild(script);
+            if (externalSignal && onAbort) externalSignal.removeEventListener('abort', onAbort);
+        };
+        const finish = (fn, value) => { cleanup(); fn(value); };
+        const onAbort = () => finish(reject, new DOMException('Aborted', 'AbortError'));
+        window[cb] = payload => {
+            if (!payload || payload.ok === false) return finish(reject, new Error(payload?.error || 'Không có dữ liệu'));
+            finish(resolve, payload);
+        };
+        script.onerror = () => finish(reject, new Error('JSONP dictionary backend không phản hồi'));
+        try {
+            const u = new URL(DICT_V34_BACKEND);
+            u.searchParams.set('action', 'dictionary');
+            u.searchParams.set('word', dictV11NormalizeWord(word));
+            u.searchParams.set('kind', kind || 'full');
+            u.searchParams.set('callback', cb);
+            script.src = u.href;
+            (document.head || document.documentElement).appendChild(script);
+            timer = setTimeout(() => finish(reject, new Error('Timeout dictionary backend')), timeoutMs);
+            if (externalSignal) {
+                if (externalSignal.aborted) return onAbort();
+                externalSignal.addEventListener('abort', onAbort, { once: true });
+            }
+        } catch (e) { finish(reject, e); }
+    });
+}
+
 async function dictV34BackendLookup(word, kind, timeoutMs, externalSignal) {
     if (!DICT_V34_BACKEND) throw new Error('Chưa cấu hình Apps Script backend');
     const controller = new AbortController();
@@ -949,11 +1007,18 @@ async function dictV34BackendLookup(word, kind, timeoutMs, externalSignal) {
         u.searchParams.set('action', 'dictionary');
         u.searchParams.set('word', dictV11NormalizeWord(word));
         u.searchParams.set('kind', kind || 'full');
-        const res = await fetch(u.toString(), { signal: controller.signal, cache: 'no-store' });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const payload = await res.json();
-        if (!payload || payload.ok === false) throw new Error(payload?.error || 'Không có dữ liệu');
-        return payload;
+        try {
+            const res = await fetch(u.toString(), { signal: controller.signal, cache: 'no-store', credentials: 'omit' });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const payload = await res.json();
+            if (!payload || payload.ok === false) throw new Error(payload?.error || 'Không có dữ liệu');
+            return payload;
+        } catch (fetchError) {
+            // Safari/iPad đôi khi chặn fetch cross-origin nhưng vẫn cho phép
+            // script JSONP. Dùng JSONP như fallback cuối cùng, không đổi API.
+            if (fetchError?.name === 'AbortError') throw fetchError;
+            return await dictV34BackendLookupJSONP(word, kind, Math.max(2500, timeoutMs), externalSignal);
+        }
     } finally {
         clearTimeout(timer);
         if (removeExternal) removeExternal();
