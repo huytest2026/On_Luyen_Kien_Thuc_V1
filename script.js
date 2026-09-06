@@ -5612,9 +5612,10 @@ window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e
       box.innerHTML=books.map(b=>`<div class="ebook-card" data-book-card="${esc(b.id)}">
         <div class="ebook-cover" data-cover-box="${esc(b.id)}"><div class="ebook-cover-placeholder">📘</div><div class="ebook-cover-loading">Đang tải bìa…</div></div>
         <div class="ebook-card-body"><div class="ebook-title">${esc(b.name)}</div><div class="ebook-meta">📄 PDF • ${fmtSize(b.size)} • Drive</div><div class="ebook-meta">✍️ Tác giả: ${esc(b.author||'Chưa cập nhật')} • 📑 Số trang: ${b.pageCount?esc(b.pageCount):'Xem khi mở sách'}</div>
-          <div class="ebook-card-actions"><button type="button" class="ebook-open-btn" data-drive-open="${esc(b.id)}">📖 Xem sách</button>${isBao?`<button type="button" class="ebook-delete-btn" data-drive-del="${esc(b.id)}" title="Xóa sách">🗑️</button>`:''}</div>
+          <div class="ebook-card-actions"><button type="button" class="ebook-open-btn" data-drive-open="${esc(b.id)}">📖 Xem sách</button><button type="button" class="ebook-practice-btn" data-drive-practice="${esc(b.id)}">🎯 Luyện câu đã tạo</button>${isBao?`<button type="button" class="ebook-delete-btn" data-drive-del="${esc(b.id)}" title="Xóa sách">🗑️</button>`:''}</div>
         </div></div>`).join('');
       box.querySelectorAll('[data-drive-open]').forEach(btn=>btn.addEventListener('click',()=>openRemoteBook(String(btn.dataset.driveOpen))));
+      box.querySelectorAll('[data-drive-practice]').forEach(btn=>btn.addEventListener('click',()=>window.openEbookPractice(String(btn.dataset.drivePractice))));
       loadBookCovers(books);
       box.querySelectorAll('[data-drive-del]').forEach(btn=>btn.addEventListener('click',async()=>{
         if(!confirm('Xóa sách này khỏi thư viện Google Drive?'))return;
@@ -5749,6 +5750,54 @@ window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e
   document.addEventListener('keydown',e=>{const m=document.getElementById('ebook-reader-modal');if(!m||m.style.display==='none')return;if(e.key==='ArrowRight'){e.preventDefault();window.ebookNext();}else if(e.key==='ArrowLeft'){e.preventDefault();window.ebookPrev();}else if(e.key==='+'||e.key==='='){e.preventDefault();window.ebookZoom(1);}else if(e.key==='-'){e.preventDefault();window.ebookZoom(-1);}else if(e.key==='Escape'){window.closeEbookReader();}});
   let touchX=0;document.addEventListener('touchstart',e=>{if(e.touches?.length===1)touchX=e.touches[0].clientX;},{passive:true});document.addEventListener('touchend',e=>{const m=document.getElementById('ebook-reader-modal');if(!m||m.style.display==='none')return;if(!touchX||!e.changedTouches?.length)return;const dx=e.changedTouches[0].clientX-touchX;touchX=0;if(Math.abs(dx)>60){if(dx<0)window.ebookNext();else window.ebookPrev();}},{passive:true});
 
+
+  // ------------------------------------------------------------
+  // V42.7.4 — Luyện riêng ngân hàng EBOOK
+  // ------------------------------------------------------------
+  let ebookPracticePool=[];
+  function ebookPracticeCall(params){ return gasJsonp('ebookbank',params); }
+  function startEbookPracticeQuiz(items,count,bookName){
+    var pool=(items||[]).slice(); if(pool.length>count) pool=shuffleArray(pool).slice(0,count);
+    if(!pool.length){alert('Không có câu hỏi EBOOK phù hợp.');return;}
+    var mon=pool[0].mon||((document.getElementById('v427-practice-subject')||{}).value||'Tiếng Anh');
+    var prepared=pool.map(function(q){
+      var item={...q,question:String(q.CauHoi||q.question||'').trim(),a:String(q.DapAnA||q.a||'').trim(),b:String(q.DapAnB||q.b||'').trim(),c:String(q.DapAnC||q.c||'').trim(),d:String(q.DapAnD||q.d||'').trim(),correct:String(q.DapAnDung||q.correct||'').trim(),mon:mon,chuDe:String(q.ChuDe||q.chuDe||''),level:String(q.DoKho||q.level||''),skill:String(q.KyNang||q.skill||''),_source:'EBOOK',_editKey:String(q.MaCau||q.ID||'').trim()};
+      item._correctKeys=getCorrectKeys(item);item._shuffledKeys=shuffleArray(['a','b','c','d'].filter(function(k){return item[k]!=='';}));return item;
+    }).filter(function(x){return x.question&&x._correctKeys.length;});
+    if(!prepared.length){alert('Các câu EBOOK chưa có đáp án hợp lệ.');return;}
+    AppState.currentQuizData=prepared;AppState.correctCount=0;AppState.wrongCount=0;AppState.quizSubmitted=false;AppState.v42ExamActive=false;AppState.v42ExamMeta=null;
+    var ss=document.getElementById('start-screen'),qs=document.getElementById('quiz-screen');if(ss)ss.style.display='none';if(qs)qs.style.display='block';setQuizActive(true);updateScoreDisplay();window.renderQuiz();window.startTimerTotal(Math.max(5,Math.ceil(prepared.length*45)));
+  }
+  function ebookPracticeModal(){
+    var m=document.getElementById('v427-ebook-practice-modal');if(m)return m;
+    m=document.createElement('div');m.id='v427-ebook-practice-modal';m.style.cssText='display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:13100;align-items:center;justify-content:center;padding:10px;box-sizing:border-box;';
+    m.innerHTML='<div style="width:min(1000px,100%);max-height:94vh;overflow:auto;background:#fff;border-radius:16px;padding:16px;box-sizing:border-box;color:#17212b"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><h2 style="margin:0;color:#7b4bb7">🎯 Luyện câu hỏi từ EBOOK</h2><button type="button" onclick="window.closeEbookPractice()" style="padding:8px 12px;border:0;border-radius:8px;background:#6c757d;color:#fff;font-weight:700">✕ Đóng</button></div><div id="v427-practice-book" style="margin-top:8px;padding:9px;background:#f1eaff;border-radius:9px"></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:9px;margin-top:10px"><label>Môn<select id="v427-practice-subject" style="width:100%;padding:9px"><option>Tiếng Anh</option><option>Toán</option></select></label><label>Sách<select id="v427-practice-book-select" style="width:100%;padding:9px"><option value="">Tất cả sách</option></select></label><label>Chủ đề<select id="v427-practice-topic" style="width:100%;padding:9px"><option value="">Tất cả chủ đề</option></select></label><label>Độ khó<select id="v427-practice-level" style="width:100%;padding:9px"><option value="">Tất cả</option></select></label><label>Trang<input id="v427-practice-page" type="number" min="1" placeholder="Tất cả" style="width:100%;padding:9px;box-sizing:border-box"></label><label>Số câu<select id="v427-practice-count" style="width:100%;padding:9px"><option>5</option><option selected>10</option><option>20</option><option>50</option></select></label></div><div id="v427-practice-status" style="margin-top:9px;padding:9px;background:#f5f5f5;border-radius:9px">Chọn sách/chủ đề rồi bấm Tải câu hỏi.</div><div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><button type="button" onclick="window.loadEbookPracticePool()" style="padding:10px 14px;background:#7b4bb7;color:#fff;border:0;border-radius:8px;font-weight:800">🔎 Tải câu hỏi</button><button type="button" onclick="window.startEbookPractice()" style="padding:10px 14px;background:#198754;color:#fff;border:0;border-radius:8px;font-weight:800">🚀 Bắt đầu luyện</button></div><div id="v427-practice-preview" style="margin-top:10px"></div></div>';
+    document.body.appendChild(m);return m;
+  }
+  window.openEbookPractice=async function(bookId){
+    var m=ebookPracticeModal();m.style.display='flex';
+    var subj=document.getElementById('v427-practice-subject'); if(subj)subj.value=(document.getElementById('subject-select')||{}).value||'Tiếng Anh';
+    var bookBox=document.getElementById('v427-practice-book'),sel=document.getElementById('v427-practice-book-select');if(bookBox)bookBox.textContent=bookId?'📖 Đang chọn sách…':'📖 Luyện các câu đã tạo từ EBOOK';
+    var st=document.getElementById('v427-practice-status');if(st)st.textContent='⏳ Đang tải danh sách sách…';
+    try{var r=await ebookPracticeCall({subject:subj?.value||'Tiếng Anh',limit:500});if(!r||!r.ok)throw new Error(r?.message||'Không tải được ngân hàng EBOOK.');
+      sel.innerHTML='<option value="">Tất cả sách</option>'+r.books.map(function(x){return '<option value="'+esc(x)+'">'+esc(x)+'</option>';}).join('');
+      if(bookId){try{var list=await gasJsonp('ebooklibrary');var meta=(list.books||[]).find(function(x){return String(x.id)===String(bookId);});if(meta){sel.value=meta.name||'';if(bookBox)bookBox.innerHTML='📖 <b>'+esc(meta.name)+'</b>';} }catch(e){}}
+      if(st)st.textContent='Sẵn sàng. Hãy chọn bộ lọc rồi bấm 🔎 Tải câu hỏi.';await window.loadEbookPracticePool();
+    }catch(e){if(st)st.textContent='❌ '+e.message;}
+  };
+  window.closeEbookPractice=function(){var m=document.getElementById('v427-ebook-practice-modal');if(m)m.style.display='none';};
+  window.loadEbookPracticePool=async function(){
+    var subj=document.getElementById('v427-practice-subject')?.value||'Tiếng Anh',book=document.getElementById('v427-practice-book-select')?.value||'',topic=document.getElementById('v427-practice-topic')?.value||'',level=document.getElementById('v427-practice-level')?.value||'',page=document.getElementById('v427-practice-page')?.value||'',st=document.getElementById('v427-practice-status');
+    try{if(st)st.textContent='⏳ Đang lọc ngân hàng EBOOK…';var r=await ebookPracticeCall({subject:subj,bookName:book,topic:topic,level:level,page:page,limit:500});if(!r||!r.ok)throw new Error(r?.message||'Không tải được.');ebookPracticePool=r.questions||[];
+      var t=document.getElementById('v427-practice-topic'),l=document.getElementById('v427-practice-level');
+      if(!topic&&t){t.innerHTML='<option value="">Tất cả chủ đề</option>'+r.topics.map(function(x){return '<option>'+esc(x)+'</option>';}).join('');}
+      if(!level&&l){l.innerHTML='<option value="">Tất cả</option>'+r.levels.map(function(x){return '<option>'+esc(x)+'</option>';}).join('');}
+      var n=Number(document.getElementById('v427-practice-count')?.value||10);if(st)st.textContent='✅ Có '+ebookPracticePool.length+' câu phù hợp. Sẽ luyện '+Math.min(n,ebookPracticePool.length)+' câu.';
+      var box=document.getElementById('v427-practice-preview');if(box)box.innerHTML=ebookPracticePool.slice(0,Math.min(10,ebookPracticePool.length)).map(function(q,i){return '<div style="padding:8px;border-bottom:1px solid #eee"><b>Câu '+(i+1)+':</b> '+esc(q.CauHoi)+' <span style="color:#777">['+esc(q.ChuDe||'')+' • trang '+esc(q.pageStart||'?')+'-'+esc(q.pageEnd||'?')+']</span></div>';}).join('');
+    }catch(e){if(st)st.textContent='❌ '+e.message;}
+  };
+  window.startEbookPractice=function(){var n=Number(document.getElementById('v427-practice-count')?.value||10);if(!ebookPracticePool.length)return window.loadEbookPracticePool().then(function(){if(ebookPracticePool.length)startEbookPracticeQuiz(ebookPracticePool,n,document.getElementById('v427-practice-book-select')?.value||'');});startEbookPracticeQuiz(ebookPracticePool,n,document.getElementById('v427-practice-book-select')?.value||'');};
+  document.addEventListener('change',function(e){if(e.target?.id==='v427-practice-subject'){window.openEbookPractice();}else if(['v427-practice-book-select','v427-practice-topic','v427-practice-level','v427-practice-page'].includes(e.target?.id)){window.loadEbookPracticePool();}});
 
   // ------------------------------------------------------------
   // V42.7 — AI tạo trắc nghiệm ngay trong trình đọc sách
