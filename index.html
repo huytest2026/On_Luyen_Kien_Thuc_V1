@@ -98,6 +98,33 @@
             position: relative;
         }
 
+        /* V42.8.0: mobile Safari/iPhone/iPad - chỉ để 1 lớp cuộn ở modal.
+           Tránh dict-content bị căn giữa và phần trên/bottom nằm ngoài viewport. */
+        @media (max-width: 700px) {
+            #dict-modal, #irregular-verbs-modal {
+                align-items: flex-start;
+                justify-content: center;
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+                padding: max(10px, env(safe-area-inset-top)) 8px max(10px, env(safe-area-inset-bottom));
+            }
+            #dict-modal .dict-content, #irregular-verbs-modal .dict-content {
+                width: 100%;
+                max-width: 650px;
+                max-height: calc(100dvh - 20px);
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+                overscroll-behavior: contain;
+                padding: 16px;
+                margin: 0 auto;
+            }
+            #dict-modal #dict-result {
+                max-height: none !important;
+                overflow: visible !important;
+                -webkit-overflow-scrolling: auto;
+            }
+        }
+
         /* V11: giao diện tra từ siêu nhanh + progressive loading */
 .dict-v11-loading { padding: 12px; text-align: center; color: #555; }
 .dict-v11-meta { margin-top: 8px; font-size: .82em; color: #777; }
@@ -867,6 +894,6 @@ body.dark-mode #ebook-library-modal .ebook-title{color:#fff;}
 
 <!-- V30: CHỈ MỘT ENGINE TỪ ĐIỂN. Không nạp V17/V18/V28 patch để tránh ghi đè lookupWord. -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="script.js?v=42.7.9"></script>
+<script src="script.js?v=42.8.0"></script>
 </body>
 </html>
