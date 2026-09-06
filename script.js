@@ -657,6 +657,39 @@ async function v16LoadShard(shard) {
                     }
                 } catch (e) {}
             }
+
+            // V42.7.8: Safari/iPad có thể chặn fetch tài nguyên JSON của GitHub Pages.
+            // Không coi lỗi tải shard là "không có từ". Dùng Apps Script làm proxy
+            // server-side để lấy đúng shard từ GitHub Pages rồi trả về JSONP.
+            if (!data && DICT_V34_BACKEND) {
+                try {
+                    const base = new URL(document.baseURI).origin;
+                    const payload = await new Promise((resolve, reject) => {
+                        const cb = '__dictShard_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+                        const script = document.createElement('script');
+                        let timer = setTimeout(() => { cleanup(); reject(new Error('Timeout dictionary shard proxy')); }, 8000);
+                        const cleanup = () => {
+                            clearTimeout(timer);
+                            try { delete window[cb]; } catch (e) { window[cb] = undefined; }
+                            if (script.parentNode) script.parentNode.removeChild(script);
+                        };
+                        window[cb] = value => { cleanup(); resolve(value); };
+                        script.onerror = () => { cleanup(); reject(new Error('Dictionary shard proxy không phản hồi')); };
+                        const u = new URL(DICT_V34_BACKEND);
+                        u.searchParams.set('action', 'dictionaryshard');
+                        u.searchParams.set('shard', shard);
+                        u.searchParams.set('base', base);
+                        u.searchParams.set('callback', cb);
+                        u.searchParams.set('v', '42.7.8');
+                        script.src = u.href;
+                        (document.head || document.documentElement).appendChild(script);
+                    });
+                    if (payload && payload.ok && payload.data && typeof payload.data === 'object') {
+                        data = payload.data;
+                        v16WriteShardToIDB(shard, data).catch(() => {});
+                    }
+                } catch (e) {}
+            }
         }
 
         if (data) V16_DICT_MEMORY.set(shard, data);
