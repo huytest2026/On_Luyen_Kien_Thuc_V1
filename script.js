@@ -565,7 +565,8 @@ function dictV11NormalizeWord(value) {
 // ==========================================
 const V16_DICT_DB_NAME = 'EnglishDictionaryOffline200K_V34';
 const V16_DICT_STORE = 'shards';
-const V16_DICT_VERSION = 42;
+const V16_DICT_VERSION = 43;
+const V16_DICT_BUILD = 'V42.7.9';
 const V16_DICT_PATH = 'dictionary-200k/core2/';
 const V16_DICT_COUNT = 300000;
 const V16_DICT_VERSION_LABEL = 'V42.4-DICT-200K-2026.09';
@@ -578,10 +579,15 @@ function v16OpenDictDB() {
     v16DictDBPromise = new Promise((resolve) => {
         if (!('indexedDB' in window)) { resolve(null); return; }
         const req = indexedDB.open(V16_DICT_DB_NAME, V16_DICT_VERSION);
-        req.onupgradeneeded = () => {
+        req.onupgradeneeded = (event) => {
             const db = req.result;
+            const oldVersion = Number(event.oldVersion || 0);
             if (!db.objectStoreNames.contains(V16_DICT_STORE)) {
                 db.createObjectStore(V16_DICT_STORE, { keyPath: 'id' });
+            } else if (oldVersion < 43) {
+                // V42.7.9: xoá shard cũ trên Safari/iPad để loại cache có thể bị
+                // lỗi/cũ sau nhiều lần nâng cấp. Shard sẽ được tải lại khi cần.
+                try { db.transaction(V16_DICT_STORE, 'readwrite').objectStore(V16_DICT_STORE).clear(); } catch (e) {}
             }
         };
         req.onsuccess = () => resolve(req.result);
@@ -624,23 +630,41 @@ async function v16WriteShardToIDB(shard, data) {
     } catch (e) {}
 }
 
-async function v16LoadShard(shard) {
-    if (V16_DICT_MEMORY.has(shard)) return V16_DICT_MEMORY.get(shard);
+async function v16DeleteShardFromIDB(shard) {
+    const db = await v16OpenDictDB();
+    if (!db) return;
+    try {
+        await new Promise(resolve => {
+            const tx = db.transaction(V16_DICT_STORE, 'readwrite');
+            tx.objectStore(V16_DICT_STORE).delete(shard);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => resolve();
+            tx.onabort = () => resolve();
+        });
+    } catch (e) {}
+}
+
+async function v16LoadShard(shard, forceRefresh = false) {
+    if (!forceRefresh && V16_DICT_MEMORY.has(shard)) return V16_DICT_MEMORY.get(shard);
+    if (forceRefresh) {
+        V16_DICT_MEMORY.delete(shard);
+        await v16DeleteShardFromIDB(shard);
+    }
     if (V16_DICT_LOADING.has(shard)) return V16_DICT_LOADING.get(shard);
 
     const promise = (async () => {
         // Safari/iPad: IndexedDB có thể trả lỗi/quota hoặc cache cũ; luôn thử tiếp
         // mạng thay vì coi lỗi đó là "không có từ".
-        let data = await v16ReadShardFromIDB(shard).catch(() => null);
+        let data = forceRefresh ? null : await v16ReadShardFromIDB(shard).catch(() => null);
 
         if (!data) {
             const shardName = `${shard}.json`;
             const urls = [];
             try {
                 // URL tuyệt đối từ baseURI ổn định hơn URL tương đối trên Safari/iPad.
-                urls.push(new URL(V16_DICT_PATH + shardName, document.baseURI).href);
+                urls.push(new URL(V16_DICT_PATH + shardName + '?v=' + encodeURIComponent(V16_DICT_BUILD), document.baseURI).href);
             } catch (e) {}
-            urls.push(V16_DICT_PATH + shardName);
+            urls.push(V16_DICT_PATH + shardName + '?v=' + encodeURIComponent(V16_DICT_BUILD));
 
             // Lần 1: cache hiện có. Lần 2: no-store để vượt cache lỗi trên Safari.
             for (const [idx, url] of urls.entries()) {
@@ -680,7 +704,7 @@ async function v16LoadShard(shard) {
                         u.searchParams.set('shard', shard);
                         u.searchParams.set('base', base);
                         u.searchParams.set('callback', cb);
-                        u.searchParams.set('v', '42.7.8');
+                        u.searchParams.set('v', V16_DICT_BUILD);
                         script.src = u.href;
                         (document.head || document.documentElement).appendChild(script);
                     });
@@ -707,8 +731,16 @@ async function v16LoadShard(shard) {
 async function getOfflineDictionaryEntry(word) {
     const key = dictV11NormalizeWord(word);
     if (!key) return null;
-    const data = await v16LoadShard(v16ShardForWord(key));
-    return data?.[key] || null;
+    const shard = v16ShardForWord(key);
+    let data = await v16LoadShard(shard);
+    let entry = data && typeof data === 'object' ? data[key] : null;
+    // V42.7.9: nếu shard đã có trong Safari/IndexedDB nhưng không chứa đúng
+    // từ cần tra, coi đó là cache lỗi/cũ và tải lại shard một lần.
+    if (!entry) {
+        data = await v16LoadShard(shard, true);
+        entry = data && typeof data === 'object' ? data[key] : null;
+    }
+    return entry || null;
 }
 
 // Backward-compatible alias for older V42.4 code paths.
