@@ -519,23 +519,6 @@ window.stopPronunciationCheck = function() {
 
 // 1. Quản lý Tra từ điển (Đã tích hợp Anh - Việt)
 // 1. Quản lý Tra từ điển (Đã tích hợp Anh - Việt, Phiên âm & Phát âm)
-let dictionaryAutoCloseTimer = null;
-const DICTIONARY_AUTO_CLOSE_MS = 10000;
-
-function restartDictionaryAutoCloseTimer() {
-    if (dictionaryAutoCloseTimer) {
-        clearTimeout(dictionaryAutoCloseTimer);
-        dictionaryAutoCloseTimer = null;
-    }
-    dictionaryAutoCloseTimer = setTimeout(function() {
-        const modal = document.getElementById('dict-modal');
-        if (modal && modal.style.display === 'flex') {
-            modal.style.display = 'none';
-        }
-        dictionaryAutoCloseTimer = null;
-    }, DICTIONARY_AUTO_CLOSE_MS);
-}
-
 window.openDictionaryModal = function() {
     const modal = document.getElementById('dict-modal');
     if (modal) modal.style.display = 'flex';
@@ -552,10 +535,6 @@ window.openDictionaryModal = function() {
 
 window.closeDictionaryModal = function() {
     const modal = document.getElementById('dict-modal');
-    if (dictionaryAutoCloseTimer) {
-        clearTimeout(dictionaryAutoCloseTimer);
-        dictionaryAutoCloseTimer = null;
-    }
     if (modal) modal.style.display = 'none';
 };
 
@@ -1735,10 +1714,6 @@ window.lookupWord = async function(requestedWord = '') {
         resultBox.innerHTML = '<span style="color:red;">Vui lòng nhập từ cần tra!</span>';
         return;
     }
-
-    // V42.6.3: tính 10 giây kể từ lúc bấm/ra lệnh “Tra”.
-    // Mỗi lần tra từ mới sẽ tính lại từ đầu.
-    restartDictionaryAutoCloseTimer();
 
     // Ưu tiên quan hệ biến thể đã có sẵn trong dictionary offline.
     // Ví dụ: loved -> love, succeeded -> succeed, ran -> run.
