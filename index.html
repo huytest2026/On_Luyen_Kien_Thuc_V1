@@ -653,6 +653,7 @@ body.dark-mode #ebook-library-modal .ebook-title{color:#fff;}
         <button type="button" class="start-tool-btn start-tool-library" onclick="window.openEbookLibrary()">📚 Thư viện</button>
         <button type="button" class="start-tool-btn start-tool-ebook-practice" onclick="window.openEbookPractice()">🎯 Luyện EBOOK</button>
         <button type="button" class="start-tool-btn" style="background:#8a1538;color:#fff" onclick="window.openToeicListening()">🎧 TOEIC Listening</button>
+        <button type="button" class="start-tool-btn" style="background:#155d8a;color:#fff" onclick="window.openToeicReading()">📖 TOEIC Reading</button>
     </div>
     
     <label for="student-code">Mã học sinh:</label>
@@ -929,5 +930,42 @@ body.dark-mode #ebook-library-modal .ebook-title{color:#fff;}
     </div>
   </div>
 </div>
+
+
+<style>
+.toeic-reading-modal{position:fixed;inset:0;background:rgba(0,0,0,.62);display:none;align-items:center;justify-content:center;z-index:10020;padding:14px}
+.toeic-reading-panel{width:min(1100px,100%);max-height:94vh;overflow:auto;background:#fff;border-radius:18px;box-shadow:0 20px 70px rgba(0,0,0,.35)}
+.toeic-reading-head{position:sticky;top:0;z-index:2;background:#0f2433;color:#fff;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.toeic-reading-head h2{margin:0;font-size:1.2rem}.toeic-reading-close{border:0;background:#6c757d;color:#fff;border-radius:9px;padding:9px 12px;font-weight:800;cursor:pointer}
+.toeic-reading-body{padding:16px}.toeic-reading-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.toeic-reading-grid label{font-weight:800;color:#30343a}.toeic-reading-grid select,.toeic-reading-grid input{width:100%;margin-top:5px;padding:11px;border:1px solid #d5dbe1;border-radius:9px;font-size:1rem;box-sizing:border-box}
+.toeic-reading-start{width:100%;margin-top:12px;padding:13px;border:0;border-radius:10px;background:#155d8a;color:#fff;font-size:1.05rem;font-weight:900;cursor:pointer}
+.toeic-reading-status{margin-top:10px;background:#eef3f7;border-radius:10px;padding:10px;color:#334}
+.toeic-reading-question{background:#fff;border:1px solid #e0e5ea;border-radius:14px;padding:16px}.toeic-reading-passage{background:#f7f9fb;border-left:4px solid #155d8a;border-radius:8px;padding:12px;margin:10px 0;line-height:1.65;white-space:pre-wrap}
+.toeic-reading-opt{display:block;border:1px solid #dfe4e8;border-radius:9px;padding:10px;margin:8px 0;cursor:pointer}.toeic-reading-opt:hover{background:#f5f8fa}
+@media(max-width:700px){.toeic-reading-grid{grid-template-columns:1fr 1fr}.toeic-reading-body{padding:10px}.toeic-reading-panel{max-height:96vh}}
+</style>
+
+<div id="toeic-reading-modal" class="toeic-reading-modal" role="dialog" aria-modal="true" aria-labelledby="toeic-reading-title">
+  <div class="toeic-reading-panel">
+    <div class="toeic-reading-head"><h2 id="toeic-reading-title">📖 TOEIC Reading — Part 5 → Part 6</h2><button class="toeic-reading-close" onclick="window.closeToeicReading()">✕ Đóng</button></div>
+    <div class="toeic-reading-body">
+      <div id="toeic-reading-setup">
+        <div class="toeic-reading-grid">
+          <label>Part<select id="toeic-reading-part"><option value="">Part 5 → Part 6</option><option>Part 5</option><option>Part 6</option></select></label>
+          <label>Chế độ<select id="toeic-reading-mode"><option value="practice">🎯 Luyện tập</option><option value="exam">🏆 Thi</option></select></label>
+          <label>Số câu<select id="toeic-reading-count"><option>5</option><option selected>10</option><option>20</option><option>50</option></select></label>
+          <label>Chủ đề<input id="toeic-reading-topic" placeholder="Không bắt buộc"></label>
+        </div>
+        <div id="toeic-reading-admin" style="display:none;margin-top:12px;padding:10px;border:1px dashed #b9c2ca;border-radius:10px">⚙️ Bảo/Bao: <button type="button" onclick="window.initToeicReadingBank()" style="padding:8px 11px;border:0;border-radius:8px;background:#6f42c1;color:#fff;font-weight:800;cursor:pointer">Tạo/kiểm tra sheet NGAN_HANG_TOEIC_READING</button></div>
+        <button class="toeic-reading-start" onclick="window.startToeicReading()">▶ Bắt đầu TOEIC Reading</button>
+        <div id="toeic-reading-status" class="toeic-reading-status">Sẵn sàng. Dữ liệu đọc từ sheet NGAN_HANG_TOEIC_READING.</div>
+      </div>
+      <div id="toeic-reading-quiz" style="display:none"></div>
+      <div id="toeic-reading-result" style="display:none;margin-top:12px"></div>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
