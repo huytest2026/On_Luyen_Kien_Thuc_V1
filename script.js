@@ -565,8 +565,8 @@ function dictV11NormalizeWord(value) {
 // ==========================================
 const V16_DICT_DB_NAME = 'EnglishDictionaryOffline200K_V34';
 const V16_DICT_STORE = 'shards';
-const V16_DICT_VERSION = 44;
-const V16_DICT_BUILD = 'V42.8.0';
+const V16_DICT_VERSION = 45;
+const V16_DICT_BUILD = 'V42.8.1';
 const V16_DICT_PATH = 'dictionary-200k/core2/';
 const V16_DICT_COUNT = 300000;
 const V16_DICT_VERSION_LABEL = 'V42.4-DICT-200K-2026.09';
@@ -1055,6 +1055,7 @@ function dictV34BackendEntryLookupJSONP(word, timeoutMs = 7000) {
             const u = new URL(DICT_V34_BACKEND);
             u.searchParams.set('action', 'dictionaryentry');
             u.searchParams.set('word', dictV11NormalizeWord(word));
+            try { u.searchParams.set('base', new URL(document.baseURI).origin); } catch (e) {}
             u.searchParams.set('callback', cb);
             u.searchParams.set('v', V16_DICT_BUILD);
             script.src = u.href;
@@ -1894,10 +1895,26 @@ window.lookupWord = async function(requestedWord = '') {
         return;
     }
 
-    // Ưu tiên quan hệ biến thể đã có sẵn trong dictionary offline.
-    // Ví dụ: loved -> love, succeeded -> succeed, ran -> run.
-    // Chỉ dùng bộ resolver cũ khi offline dictionary không có quan hệ này.
-    const offlineRequestedEntry = await getOfflineDictionaryEntry(requested).catch(() => null);
+    // V42.8.1: không tải cả shard 200K trước khi biết từ có tồn tại hay không.
+    // Tra đúng 1 entry trước (Apps Script -> GitHub shard), sau đó mới dùng
+    // offline shard ở máy làm fallback. Cách này ổn định hơn trên Safari/iPad
+    // và nhẹ hơn cho IndexedDB.
+    let offlineRequestedEntry = null;
+    try {
+        const backendEntry = await dictV34BackendEntryLookupJSONP(requested, 7000);
+        if (backendEntry?.ok && backendEntry.entry) {
+            offlineRequestedEntry = backendEntry.entry;
+            if (backendEntry.translation && !Array.isArray(offlineRequestedEntry.vi)) {
+                offlineRequestedEntry.vi = [backendEntry.translation];
+            }
+        }
+    } catch (e) {}
+
+    // Nếu backend exact-entry không trả được, mới thử shard local.
+    if (!offlineRequestedEntry) {
+        offlineRequestedEntry = await getOfflineDictionaryEntry(requested).catch(() => null);
+    }
+
     const offlineRequestedRecords = dictOfflineRecords(offlineRequestedEntry);
     const offlineBase = offlineRequestedRecords[0]?.base && offlineRequestedRecords[0].base !== requested
         ? dictV11NormalizeWord(offlineRequestedRecords[0].base) : '';
