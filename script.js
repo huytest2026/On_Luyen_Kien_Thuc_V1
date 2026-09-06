@@ -559,196 +559,103 @@ function dictV11NormalizeWord(value) {
 
 
 // ==========================================
-// V16 INSTANT OFFLINE DICTIONARY – 50.000 TỪ
-// Lazy shards + IndexedDB + Memory Cache.
-// Chỉ tải shard cần thiết; sau đó giữ shard trong IndexedDB.
+// V43 DICTIONARY ENGINE – Exact Hash Buckets
+// 300K+ forms, 1024 compact static buckets.
+// Không phụ thuộc IndexedDB cho đường tra cứu chính.
+// Mỗi từ chỉ tải đúng 1 bucket (~30–45 KB thay vì shard 2 chữ có thể >1 MB).
 // ==========================================
-const V16_DICT_DB_NAME = 'EnglishDictionaryOffline200K_V34';
-const V16_DICT_STORE = 'shards';
-const V16_DICT_VERSION = 45;
-const V16_DICT_BUILD = 'V42.8.2';
-const V16_DICT_PATH = 'dictionary-200k/core2/';
-const V16_DICT_COUNT = 300000;
-const V16_DICT_VERSION_LABEL = 'V42.4-DICT-200K-2026.09';
-const V16_DICT_MEMORY = new Map();
-const V16_DICT_LOADING = new Map();
-let v16DictDBPromise = null;
+const V43_DICT_BUILD = 'V43.0.0';
+const V43_DICT_PATH = 'dictionary-v43/';
+const V43_DICT_BUCKETS = 1024;
+const V43_DICT_COUNT = 300421;
+const V43_DICT_VERSION_LABEL = 'V43 Dictionary Engine · 300K+ · 2026.09';
+const V43_DICT_MEMORY = new Map();
+const V43_DICT_LOADING = new Map();
 
-function v16OpenDictDB() {
-    if (v16DictDBPromise) return v16DictDBPromise;
-    v16DictDBPromise = new Promise((resolve) => {
-        if (!('indexedDB' in window)) { resolve(null); return; }
-        const req = indexedDB.open(V16_DICT_DB_NAME, V16_DICT_VERSION);
-        req.onupgradeneeded = (event) => {
-            const db = req.result;
-            const oldVersion = Number(event.oldVersion || 0);
-            if (!db.objectStoreNames.contains(V16_DICT_STORE)) {
-                db.createObjectStore(V16_DICT_STORE, { keyPath: 'id' });
-            } else if (oldVersion < 44) {
-                // V42.8.0: reset hẳn objectStore cũ trong versionchange transaction.
-                // Cách này ổn định hơn clear() trên Safari/iPad và loại cache shard lỗi.
-                try {
-                    db.deleteObjectStore(V16_DICT_STORE);
-                    db.createObjectStore(V16_DICT_STORE, { keyPath: 'id' });
-                } catch (e) {}
-            }
-        };
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => resolve(null);
-    });
-    return v16DictDBPromise;
-}
-
-function v16ShardForWord(word) {
-    const w = dictV11NormalizeWord(word);
-    if (/^[a-z]{2}/.test(w)) return w.slice(0,2);
-    if (/^[a-z]/.test(w)) return w.charAt(0);
-    return 'other';
-}
-
-async function v16ReadShardFromIDB(shard) {
-    const db = await v16OpenDictDB();
-    if (!db) return null;
-    return new Promise(resolve => {
-        try {
-            const tx = db.transaction(V16_DICT_STORE, 'readonly');
-            const req = tx.objectStore(V16_DICT_STORE).get(shard);
-            req.onsuccess = () => resolve(req.result?.data || null);
-            req.onerror = () => resolve(null);
-        } catch (e) { resolve(null); }
-    });
-}
-
-async function v16WriteShardToIDB(shard, data) {
-    const db = await v16OpenDictDB();
-    if (!db) return;
-    try {
-        await new Promise(resolve => {
-            const tx = db.transaction(V16_DICT_STORE, 'readwrite');
-            tx.objectStore(V16_DICT_STORE).put({ id: shard, data, savedAt: Date.now() });
-            tx.oncomplete = () => resolve();
-            tx.onerror = () => resolve();
-            tx.onabort = () => resolve();
-        });
-    } catch (e) {}
-}
-
-async function v16DeleteShardFromIDB(shard) {
-    const db = await v16OpenDictDB();
-    if (!db) return;
-    try {
-        await new Promise(resolve => {
-            const tx = db.transaction(V16_DICT_STORE, 'readwrite');
-            tx.objectStore(V16_DICT_STORE).delete(shard);
-            tx.oncomplete = () => resolve();
-            tx.onerror = () => resolve();
-            tx.onabort = () => resolve();
-        });
-    } catch (e) {}
-}
-
-async function v16LoadShard(shard, forceRefresh = false) {
-    if (!forceRefresh && V16_DICT_MEMORY.has(shard)) return V16_DICT_MEMORY.get(shard);
-    if (forceRefresh) {
-        V16_DICT_MEMORY.delete(shard);
-        await v16DeleteShardFromIDB(shard);
+function v43HashWord(word) {
+    const s = dictV11NormalizeWord(word);
+    let h = 2166136261;
+    for (let i = 0; i < s.length; i++) {
+        const c = s.charCodeAt(i);
+        h ^= c & 255;
+        h = Math.imul(h, 16777619);
+        if (c > 255) { h ^= c >>> 8; h = Math.imul(h, 16777619); }
     }
-    if (V16_DICT_LOADING.has(shard)) return V16_DICT_LOADING.get(shard);
+    return (h >>> 0) & (V43_DICT_BUCKETS - 1);
+}
 
-    const promise = (async () => {
-        // Safari/iPad: IndexedDB có thể trả lỗi/quota hoặc cache cũ; luôn thử tiếp
-        // mạng thay vì coi lỗi đó là "không có từ".
-        let data = forceRefresh ? null : await v16ReadShardFromIDB(shard).catch(() => null);
+function v43BucketName(word) {
+    return v43HashWord(word).toString(16).padStart(4, '0');
+}
 
-        if (!data) {
-            const shardName = `${shard}.json`;
-            const urls = [];
-            try {
-                // URL tuyệt đối từ baseURI ổn định hơn URL tương đối trên Safari/iPad.
-                urls.push(new URL(V16_DICT_PATH + shardName + '?v=' + encodeURIComponent(V16_DICT_BUILD), document.baseURI).href);
-            } catch (e) {}
-            urls.push(V16_DICT_PATH + shardName + '?v=' + encodeURIComponent(V16_DICT_BUILD));
-
-            // Lần 1: cache hiện có. Lần 2: no-store để vượt cache lỗi trên Safari.
-            for (const [idx, url] of urls.entries()) {
-                try {
-                    const response = await fetch(url, {
-                        cache: idx === 0 ? 'force-cache' : 'no-store',
-                        credentials: 'omit'
-                    });
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                    data = await response.json();
-                    if (data && typeof data === 'object') {
-                        v16WriteShardToIDB(shard, data).catch(() => {});
-                        break;
-                    }
-                } catch (e) {}
-            }
-
-            // V42.7.8: Safari/iPad có thể chặn fetch tài nguyên JSON của GitHub Pages.
-            // Không coi lỗi tải shard là "không có từ". Dùng Apps Script làm proxy
-            // server-side để lấy đúng shard từ GitHub Pages rồi trả về JSONP.
-            if (!data && DICT_V34_BACKEND) {
-                try {
-                    const base = new URL(document.baseURI).origin;
-                    const payload = await new Promise((resolve, reject) => {
-                        const cb = '__dictShard_' + Date.now() + '_' + Math.random().toString(36).slice(2);
-                        const script = document.createElement('script');
-                        let timer = setTimeout(() => { cleanup(); reject(new Error('Timeout dictionary shard proxy')); }, 8000);
-                        const cleanup = () => {
-                            clearTimeout(timer);
-                            try { delete window[cb]; } catch (e) { window[cb] = undefined; }
-                            if (script.parentNode) script.parentNode.removeChild(script);
-                        };
-                        window[cb] = value => { cleanup(); resolve(value); };
-                        script.onerror = () => { cleanup(); reject(new Error('Dictionary shard proxy không phản hồi')); };
-                        const u = new URL(DICT_V34_BACKEND);
-                        u.searchParams.set('action', 'dictionaryshard');
-                        u.searchParams.set('shard', shard);
-                        u.searchParams.set('base', base);
-                        u.searchParams.set('callback', cb);
-                        u.searchParams.set('v', V16_DICT_BUILD);
-                        script.src = u.href;
-                        (document.head || document.documentElement).appendChild(script);
-                    });
-                    if (payload && payload.ok && payload.data && typeof payload.data === 'object') {
-                        data = payload.data;
-                        v16WriteShardToIDB(shard, data).catch(() => {});
-                    }
-                } catch (e) {}
-            }
+function v43DecodeEntry(raw) {
+    if (Array.isArray(raw)) {
+        // Compact record: [base,pos,ipa,vi,forms]
+        if (raw.length >= 5 && typeof raw[0] === 'string' && typeof raw[1] === 'string') {
+            return {base:raw[0], pos:raw[1], ipa:raw[2] || '', vi:Array.isArray(raw[3]) ? raw[3] : [], forms:Array.isArray(raw[4]) ? raw[4] : []};
         }
-
-        if (data) V16_DICT_MEMORY.set(shard, data);
-        return data;
-    })();
-
-    V16_DICT_LOADING.set(shard, promise);
-    try {
-        return await promise;
-    } finally {
-        V16_DICT_LOADING.delete(shard);
+        return raw.map(v43DecodeEntry);
     }
+    return raw;
 }
 
-async function getOfflineDictionaryEntry(word, allowForceRefresh = false) {
+async function v43FetchJson(url, timeoutMs = 1600) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const r = await fetch(url, {cache:'force-cache', credentials:'omit', signal:controller.signal});
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const d = await r.json();
+        return d && typeof d === 'object' ? d : null;
+    } finally { clearTimeout(timer); }
+}
+
+function v43BucketUrl(bucket) {
+    try { return new URL(V43_DICT_PATH + bucket + '.json?v=' + encodeURIComponent(V43_DICT_BUILD), document.baseURI).href; }
+    catch(e) { return V43_DICT_PATH + bucket + '.json?v=' + encodeURIComponent(V43_DICT_BUILD); }
+}
+
+async function v43LoadBucket(bucket) {
+    if (V43_DICT_MEMORY.has(bucket)) return V43_DICT_MEMORY.get(bucket);
+    if (V43_DICT_LOADING.has(bucket)) return V43_DICT_LOADING.get(bucket);
+    const promise = (async () => {
+        let data = null;
+        try { data = await v43FetchJson(v43BucketUrl(bucket), 1600); } catch(e) {}
+        if (data) { V43_DICT_MEMORY.set(bucket, data); return data; }
+        // Apps Script fallback: still exact-bucket, never downloads the old 2-letter shard.
+        if (DICT_V34_BACKEND) {
+            try {
+                const base = new URL(document.baseURI).origin;
+                const payload = await new Promise((resolve,reject) => {
+                    const cb = '__dictV43_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+                    const sc = document.createElement('script'); let done=false;
+                    const cleanup=()=>{if(done)return;done=true;clearTimeout(timer);try{delete window[cb]}catch(e){};if(sc.parentNode)sc.parentNode.removeChild(sc)};
+                    window[cb]=v=>{cleanup();resolve(v)};
+                    sc.onerror=()=>{cleanup();reject(new Error('proxy error'))};
+                    const timer=setTimeout(()=>{cleanup();reject(new Error('proxy timeout'))},2200);
+                    const u=new URL(DICT_V34_BACKEND);
+                    u.searchParams.set('action','dictionaryv43'); u.searchParams.set('bucket',bucket); u.searchParams.set('base',base); u.searchParams.set('callback',cb); u.searchParams.set('v',V43_DICT_BUILD);
+                    sc.src=u.href;(document.head||document.documentElement).appendChild(sc);
+                });
+                if (payload?.ok && payload.data) { V43_DICT_MEMORY.set(bucket,payload.data); return payload.data; }
+            } catch(e) {}
+        }
+        return null;
+    })();
+    V43_DICT_LOADING.set(bucket,promise);
+    try { return await promise; } finally { V43_DICT_LOADING.delete(bucket); }
+}
+
+async function getOfflineDictionaryEntry(word) {
     const key = dictV11NormalizeWord(word);
     if (!key) return null;
-    const shard = v16ShardForWord(key);
-    let data = await v16LoadShard(shard);
-    let entry = data && typeof data === 'object' ? data[key] : null;
-
-    // V42.8.2: Không tự động tải lại shard lần 2 khi không thấy từ.
-    // Một lần fetch shard là đủ; nếu không có entry thì caller mới dùng
-    // exact-entry backend. Tránh cảm giác "đơ" do Safari/PC phải tải shard 2 lần.
-    if (!entry && allowForceRefresh) {
-        data = await v16LoadShard(shard, true);
-        entry = data && typeof data === 'object' ? data[key] : null;
-    }
-    return entry || null;
+    const bucket = v43BucketName(key);
+    const data = await v43LoadBucket(bucket);
+    const raw = data && Object.prototype.hasOwnProperty.call(data,key) ? data[key] : null;
+    return raw ? v43DecodeEntry(raw) : null;
 }
 
-// Backward-compatible alias for older V42.4 code paths.
+// Backward-compatible alias for older V42.4/V42.8 code paths.
 async function getOffline50KEntry(word) { return getOfflineDictionaryEntry(word); }
 
 function dictOfflineRecords(entry) {
@@ -784,7 +691,7 @@ function buildOffline10KHTML(word, entry) {
             ${pos.length ? `<div style="margin-top:8px;"><b>🏷️ Từ loại:</b> ${pos.map(x => `<span style="display:inline-block;margin:2px 4px 2px 0;padding:3px 7px;background:#fff;border-radius:6px;">${escapeHTML(x)}</span>`).join('')}</div>` : ''}
             ${meanings.length ? `<div style="margin-top:10px;padding:10px;background:#e8f5e9;border:1px solid #c8e6c9;border-radius:8px;"><b style="color:#2e7d32;">🇻🇳 Nghĩa tiếng Việt:</b><ol style="margin:6px 0 0 22px;padding:0;">${meanings.map(x => `<li>${escapeHTML(x)}</li>`).join('')}</ol></div>` : '<div style="margin-top:10px;color:#777;">📚 Có IPA trong kho offline; chưa có nghĩa Việt cho mục này.</div>'}
             ${formRows.length ? `<div style="margin-top:10px;"><b>🌿 Họ từ / dạng liên quan:</b> ${formRows.map(x => `<span style="display:inline-block;margin:3px;padding:4px 7px;background:#fff;border:1px solid #d6e8f5;border-radius:6px;">${escapeHTML(x)}</span>`).join('')}</div>` : ''}
-            <div style="margin-top:10px;color:#667;font-size:.86em;">⚡ ${escapeHTML(V16_DICT_VERSION_LABEL)} · tra cứu offline trước, không phụ thuộc Internet.</div>
+            <div style="margin-top:10px;color:#667;font-size:.86em;">⚡ ${escapeHTML(V43_DICT_VERSION_LABEL)} · tra cứu exact offline-first, không phụ thuộc IndexedDB.</div>
             <div id="dict-offline-online-slot" style="margin-top:12px;"></div>
         </div>`;
 }
@@ -1046,7 +953,7 @@ function dictV34BackendEntryLookupJSONP(word, timeoutMs = 7000) {
             u.searchParams.set('word', dictV11NormalizeWord(word));
             try { u.searchParams.set('base', new URL(document.baseURI).origin); } catch (e) {}
             u.searchParams.set('callback', cb);
-            u.searchParams.set('v', V16_DICT_BUILD);
+            u.searchParams.set('v', V43_DICT_BUILD);
             script.src = u.href;
             (document.head || document.documentElement).appendChild(script);
             timer = setTimeout(() => { cleanup(); reject(new Error('Timeout dictionary entry backend')); }, timeoutMs);
@@ -1907,7 +1814,7 @@ window.lookupWord = async function(requestedWord = '') {
 
     let offlineRequestedEntry = null;
     try {
-        offlineRequestedEntry = await getOfflineDictionaryEntry(requested);
+        offlineRequestedEntry = await Promise.race([getOfflineDictionaryEntry(requested), new Promise(resolve => setTimeout(() => resolve(null), 1900))]);
     } catch (e) {}
     if (!dictV11IsCurrent(requestId)) return;
 
@@ -1925,7 +1832,7 @@ window.lookupWord = async function(requestedWord = '') {
         dictV27ApplyBaseFormNotice(resultBox, baseFormNotice, offlineHtml);
         const offlineMeta = document.createElement('div');
         offlineMeta.className = 'dict-v11-meta';
-        offlineMeta.innerHTML = `<span class="cache">⚡ Offline 200K · ${window.OFFLINE_DICTIONARY_50K_COUNT || V16_DICT_COUNT} từ</span>`;
+        offlineMeta.innerHTML = `<span class="cache">⚡ V43 Exact · ${V43_DICT_COUNT.toLocaleString()} từ</span>`;
         resultBox.prepend(offlineMeta);
 
         // Cache giàu/online và bổ sung nghĩa chạy nền.
@@ -1948,7 +1855,7 @@ window.lookupWord = async function(requestedWord = '') {
     // Không có trong shard local: chỉ lúc này mới gọi exact-entry backend.
     showResult(`<div class="dict-v11-loading"><b>🌐 Đang lấy dữ liệu dự phòng cho “${escapeHTML(requested)}”...</b><div class="dict-v11-skeleton"><span></span><span></span><span></span></div></div>`);
     try {
-        const backendEntry = await dictV34BackendEntryLookupJSONP(requested, 3500);
+        const backendEntry = await dictV34BackendEntryLookupJSONP(requested, 3200);
         if (!dictV11IsCurrent(requestId)) return;
         if (backendEntry?.ok && backendEntry.entry) {
             const entry = backendEntry.entry;
