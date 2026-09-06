@@ -566,7 +566,7 @@ function dictV11NormalizeWord(value) {
 const V16_DICT_DB_NAME = 'EnglishDictionaryOffline200K_V34';
 const V16_DICT_STORE = 'shards';
 const V16_DICT_VERSION = 45;
-const V16_DICT_BUILD = 'V42.8.1';
+const V16_DICT_BUILD = 'V42.8.2';
 const V16_DICT_PATH = 'dictionary-200k/core2/';
 const V16_DICT_COUNT = 300000;
 const V16_DICT_VERSION_LABEL = 'V42.4-DICT-200K-2026.09';
@@ -731,30 +731,19 @@ async function v16LoadShard(shard, forceRefresh = false) {
     }
 }
 
-async function getOfflineDictionaryEntry(word) {
+async function getOfflineDictionaryEntry(word, allowForceRefresh = false) {
     const key = dictV11NormalizeWord(word);
     if (!key) return null;
     const shard = v16ShardForWord(key);
     let data = await v16LoadShard(shard);
     let entry = data && typeof data === 'object' ? data[key] : null;
-    // V42.7.9: nếu shard đã có trong Safari/IndexedDB nhưng không chứa đúng
-    // từ cần tra, coi đó là cache lỗi/cũ và tải lại shard một lần.
-    if (!entry) {
+
+    // V42.8.2: Không tự động tải lại shard lần 2 khi không thấy từ.
+    // Một lần fetch shard là đủ; nếu không có entry thì caller mới dùng
+    // exact-entry backend. Tránh cảm giác "đơ" do Safari/PC phải tải shard 2 lần.
+    if (!entry && allowForceRefresh) {
         data = await v16LoadShard(shard, true);
         entry = data && typeof data === 'object' ? data[key] : null;
-    }
-
-    // V42.8.0: fallback cuối cho Safari/iPad. Không cần tải cả shard ở máy
-    // nữa; Apps Script lấy đúng 1 entry từ GitHub server-side. Điều này xử lý
-    // trường hợp Safari chặn/cached lỗi JSON shard hoặc IndexedDB không ổn định.
-    if (!entry && DICT_V34_BACKEND) {
-        try {
-            const payload = await dictV34BackendEntryLookupJSONP(key, 7000);
-            if (payload && payload.ok && payload.entry) {
-                entry = payload.entry;
-                if (payload.translation && !Array.isArray(entry.vi)) entry.vi = [payload.translation];
-            }
-        } catch (e) {}
     }
     return entry || null;
 }
@@ -1895,188 +1884,104 @@ window.lookupWord = async function(requestedWord = '') {
         return;
     }
 
-    // V42.8.1: không tải cả shard 200K trước khi biết từ có tồn tại hay không.
-    // Tra đúng 1 entry trước (Apps Script -> GitHub shard), sau đó mới dùng
-    // offline shard ở máy làm fallback. Cách này ổn định hơn trên Safari/iPad
-    // và nhẹ hơn cho IndexedDB.
-    let offlineRequestedEntry = null;
-    try {
-        const backendEntry = await dictV34BackendEntryLookupJSONP(requested, 7000);
-        if (backendEntry?.ok && backendEntry.entry) {
-            offlineRequestedEntry = backendEntry.entry;
-            if (backendEntry.translation && !Array.isArray(offlineRequestedEntry.vi)) {
-                offlineRequestedEntry.vi = [backendEntry.translation];
-            }
-        }
-    } catch (e) {}
-
-    // Nếu backend exact-entry không trả được, mới thử shard local.
-    if (!offlineRequestedEntry) {
-        offlineRequestedEntry = await getOfflineDictionaryEntry(requested).catch(() => null);
-    }
-
-    const offlineRequestedRecords = dictOfflineRecords(offlineRequestedEntry);
-    const offlineBase = offlineRequestedRecords[0]?.base && offlineRequestedRecords[0].base !== requested
-        ? dictV11NormalizeWord(offlineRequestedRecords[0].base) : '';
-    const verbInfo = offlineBase
-        ? {base: offlineBase, v1: offlineBase, matched: requested, matchedType: 'dạng biến đổi', resolverType: 'offline-dictionary'}
-        : dictResolveBaseForm(requested);
-    const word = verbInfo ? dictV11NormalizeWord(verbInfo.base || verbInfo.v1) : requested;
-    const baseFormNotice = dictV31BuildBaseFormNotice(requested, verbInfo);
-
-    input.value = requested;
-    dictV11RememberRecent(requested);
-
+    // V42.8.2: OFFLINE-FIRST thật sự.
+    // 1) Tra RAM/IndexedDB/shard local trước.
+    // 2) Nếu không có mới gọi Apps Script exact-entry.
+    // Không chờ Apps Script trước nên PC/iPhone/iPad phản hồi ngay khi shard đã cache.
     const requestId = ++AppState.dictionaryRequestId;
-    const showResult = (html) => {
-        dictV27ApplyBaseFormNotice(resultBox, baseFormNotice, html);
-        // V32: sau khi render, cập nhật riêng IPA/audio của từ đang tra và từ gốc.
-        if (verbInfo) dictV31EnhanceBaseFormPronunciations(resultBox, requested, verbInfo, requestId);
-    };
     if (AppState.dictionaryAbortController) {
         try { AppState.dictionaryAbortController.abort(); } catch(e) {}
     }
     const controller = new AbortController();
     AppState.dictionaryAbortController = controller;
 
-    // Offline-first: ưu tiên đúng dạng đang nhập để lấy IPA/POS; nếu là biến thể
-    // thì entry đã chứa base + họ từ. Chỉ fallback về base nếu exact form không có.
-    const offlineEntry = offlineRequestedEntry || await getOfflineDictionaryEntry(word);
-    if (offlineEntry) {
-        showResult(buildOffline10KHTML(requested, offlineEntry));
+    input.value = requested;
+    dictV11RememberRecent(requested);
+    const showResult = (html) => {
+        if (!dictV11IsCurrent(requestId)) return;
+        resultBox.innerHTML = html;
+    };
+
+    // Hiển thị trạng thái tức thì, không để người dùng tưởng ứng dụng bị đơ.
+    showResult('<div class="dict-v11-loading"><b>⚡ Đang tra Offline 200K...</b><div class="dict-v11-skeleton"><span></span><span></span><span></span></div></div>');
+
+    let offlineRequestedEntry = null;
+    try {
+        offlineRequestedEntry = await getOfflineDictionaryEntry(requested);
+    } catch (e) {}
+    if (!dictV11IsCurrent(requestId)) return;
+
+    // Nếu local có từ: render NGAY. Phần bổ sung online chạy nền, không chặn UI.
+    if (offlineRequestedEntry) {
+        const offlineRequestedRecords = dictOfflineRecords(offlineRequestedEntry);
+        const offlineBase = offlineRequestedRecords[0]?.base && offlineRequestedRecords[0].base !== requested
+            ? dictV11NormalizeWord(offlineRequestedRecords[0].base) : '';
+        const verbInfo = offlineBase
+            ? {base: offlineBase, v1: offlineBase, matched: requested, matchedType: 'dạng biến đổi', resolverType: 'offline-dictionary'}
+            : dictResolveBaseForm(requested);
+        const word = verbInfo ? dictV11NormalizeWord(verbInfo.base || verbInfo.v1) : requested;
+        const baseFormNotice = dictV31BuildBaseFormNotice(requested, verbInfo);
+        const offlineHtml = buildOffline10KHTML(requested, offlineRequestedEntry);
+        dictV27ApplyBaseFormNotice(resultBox, baseFormNotice, offlineHtml);
         const offlineMeta = document.createElement('div');
         offlineMeta.className = 'dict-v11-meta';
         offlineMeta.innerHTML = `<span class="cache">⚡ Offline 200K · ${window.OFFLINE_DICTIONARY_50K_COUNT || V16_DICT_COUNT} từ</span>`;
         resultBox.prepend(offlineMeta);
 
-        try {
-            const cachedRich = await dictV11Get(word);
-            if (!dictV11IsCurrent(requestId)) return;
-            const richHtml = cachedRich?.html || '';
-            const isRichCache = richHtml.includes('🌐 Đã bổ sung dữ liệu online.') ||
-                richHtml.includes('dict-family-slot') ||
-                richHtml.includes('dict-translation-slot');
-            if (cachedRich && cachedRich.fresh && isRichCache) {
-                showResult(richHtml);
-                const meta = document.createElement('div');
-                meta.className = 'dict-v11-meta';
-                meta.innerHTML = `<span class="cache">⚡ Offline 200K + Cache ${cachedRich.source === 'indexeddb' ? 'IndexedDB' : 'trình duyệt'}</span>`;
-                resultBox.prepend(meta);
-            }
-        } catch (e) {}
-
-        enrichOfflineWordOnline(word, requestId, controller, resultBox, baseFormNotice).catch(() => {});
+        // Cache giàu/online và bổ sung nghĩa chạy nền.
+        (async () => {
+            try {
+                const cachedRich = await dictV11Get(word);
+                if (!dictV11IsCurrent(requestId)) return;
+                const richHtml = cachedRich?.html || '';
+                const isRichCache = richHtml.includes('🌐 Đã bổ sung dữ liệu online.') ||
+                    richHtml.includes('dict-family-slot') || richHtml.includes('dict-translation-slot');
+                if (cachedRich && cachedRich.fresh && isRichCache) {
+                    dictV27ApplyBaseFormNotice(resultBox, baseFormNotice, richHtml);
+                }
+            } catch (e) {}
+            enrichOfflineWordOnline(word, requestId, controller, resultBox, baseFormNotice).catch(() => {});
+        })();
         return;
     }
 
-    // Tầng 1: RAM cache.
-    const memoryHtml = AppState.dictionaryCache.get(cleanKey(word));
-    if (typeof memoryHtml === 'string' && memoryHtml) {
-        showResult(memoryHtml);
-        const meta = document.createElement('div');
-        meta.className = 'dict-v11-meta';
-        meta.innerHTML = '<span class="cache">⚡ Cache · đang cập nhật IPA/nghĩa Việt…</span>';
-        resultBox.prepend(meta);
-        // Không return: tiếp tục làm mới dữ liệu từ backend.
-    }
-
-    // Tầng 2: IndexedDB/localStorage.
-    showResult(`<div class="dict-v11-loading"><b>⚡ Đang kiểm tra bộ nhớ nhanh...</b><div class="dict-v11-skeleton"><span></span><span></span><span></span></div></div>`);
-    const persistent = await dictV11Get(word);
-    if (!dictV11IsCurrent(requestId)) return;
-    if (persistent && persistent.html) {
-        // Hiển thị cache ngay để giao diện phản hồi nhanh, nhưng KHÔNG return.
-        // Cache cũ có thể chỉ có định nghĩa tiếng Anh và thiếu IPA/nghĩa Việt.
-        showResult(persistent.html);
-        const meta = document.createElement('div');
-        meta.className = 'dict-v11-meta';
-        meta.innerHTML = `<span class="cache">⚡ Cache ${persistent.source === 'indexeddb' ? 'IndexedDB' : 'trình duyệt'} · đang cập nhật IPA/nghĩa Việt…</span>`;
-        resultBox.prepend(meta);
-        // Tiếp tục xuống API/backend để bổ sung dữ liệu mới.
-    }
-
-    showResult(`<div class="dict-v11-loading"><b>🔎 Đang tra ${escapeHTML(word)}${verbInfo ? ` (từ gốc của ${escapeHTML(requested)})` : ''}...</b><div class="dict-v11-skeleton"><span></span><span></span><span></span></div></div>`);
-
-    const dictUrl = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`;
-    let data = null;
+    // Không có trong shard local: chỉ lúc này mới gọi exact-entry backend.
+    showResult(`<div class="dict-v11-loading"><b>🌐 Đang lấy dữ liệu dự phòng cho “${escapeHTML(requested)}”...</b><div class="dict-v11-skeleton"><span></span><span></span><span></span></div></div>`);
     try {
-        data = await dictV11FetchJSON(dictUrl, 5000, controller.signal);
-    } catch (e) {
+        const backendEntry = await dictV34BackendEntryLookupJSONP(requested, 3500);
         if (!dictV11IsCurrent(requestId)) return;
-        try {
-            const transUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(word)}&langpair=en|vi`;
-            const transData = await dictV11FetchJSON(transUrl, 3000, controller.signal);
-            const vietnameseMeaning = transData?.responseData?.translatedText || '';
-            const familyHtml = await renderWordFamily(word).catch(() => '');
-            if (!dictV11IsCurrent(requestId)) return;
-            showResult(`<div class="dict-word-head"><b style="font-size:1.35em;color:#540606;">${escapeHTML(word)}</b>${speechButtonHTML(word)}</div>
-                ${vietnameseMeaning ? `<div style="padding:12px;background:#e8f5e9;border-radius:7px;"><b>🇻🇳 Nghĩa tiếng Việt:</b> ${escapeHTML(vietnameseMeaning)}</div>` : '<div style="color:#b00020;">Không lấy được nghĩa tiếng Việt.</div>'}
-                ${familyHtml}
-                <div class="dict-v11-meta">⚠️ Dictionary API không phản hồi; đang dùng nguồn dự phòng.</div>`);
-            await dictV11Save(word, dictV26GetResultHTMLForCache(resultBox));
-            return;
-        } catch (fallbackError) {
-            if (!dictV11IsCurrent(requestId)) return;
-            const quick = dictV42QuickFallback(word);
-            if (quick) {
-                const quickHtml = `<div class="dict-word-head"><b style="font-size:1.45em;color:#540606;">${escapeHTML(word)}</b>${speechButtonHTML(word)}</div>
-                    <div class="dict-pronunciation-card"><div class="dict-pronunciation-title">🔤 Phiên âm IPA</div>
-                    <div class="dict-ipa-row"><span class="dict-ipa-label">IPA</span><code>${escapeHTML(quick.ipa || '')}</code></div>
-                    <div class="dict-ipa-note">💡 Dữ liệu dự phòng nội bộ.</div></div>
-                    <div style="margin:8px 0;padding:10px;background:#e8f5e9;border:1px solid #c8e6c9;border-radius:7px;"><b style="color:#2e7d32;">🇻🇳 Nghĩa tiếng Việt:</b> <span style="font-weight:700;color:#1b5e20;">${escapeHTML(quick.vi || '')}</span></div>
-                    <div class="dict-v11-meta">⚡ Fallback V42.4: nguồn online tạm thời không phản hồi.</div>`;
-                showResult(quickHtml);
-                await dictV11Save(word, dictV26GetResultHTMLForCache(resultBox));
-                return;
-            }
-            showResult(`<span style="color:red;">Không tìm thấy từ <b>${escapeHTML(word)}</b>. Vui lòng thử lại sau!</span>`);
+        if (backendEntry?.ok && backendEntry.entry) {
+            const entry = backendEntry.entry;
+            if (backendEntry.translation && !Array.isArray(entry.vi)) entry.vi = [backendEntry.translation];
+            const html = buildOffline10KHTML(requested, entry);
+            showResult(html);
+            const meta = document.createElement('div');
+            meta.className = 'dict-v11-meta';
+            meta.innerHTML = '<span class="cache">🌐 Exact lookup · Apps Script</span>';
+            resultBox.prepend(meta);
             return;
         }
-    }
+    } catch (e) {}
 
-    if (!Array.isArray(data) || !data.length) {
-        const quick = dictV42QuickFallback(word);
-        if (quick) {
-            const quickHtml = `<div class="dict-word-head"><b style="font-size:1.45em;color:#540606;">${escapeHTML(word)}</b>${speechButtonHTML(word)}</div>
-                <div class="dict-pronunciation-card"><div class="dict-pronunciation-title">🔤 Phiên âm IPA</div>
-                <div class="dict-ipa-row"><span class="dict-ipa-label">IPA</span><code>${escapeHTML(quick.ipa || '')}</code></div>
-                <div class="dict-ipa-note">💡 Dữ liệu dự phòng nội bộ.</div></div>
-                <div style="margin:8px 0;padding:10px;background:#e8f5e9;border:1px solid #c8e6c9;border-radius:7px;"><b style="color:#2e7d32;">🇻🇳 Nghĩa tiếng Việt:</b> <span style="font-weight:700;color:#1b5e20;">${escapeHTML(quick.vi || '')}</span></div>
-                <div class="dict-v11-meta">⚡ Fallback V42.4: không có dữ liệu từ nguồn online.</div>`;
-            showResult(quickHtml);
-            await dictV11Save(word, dictV26GetResultHTMLForCache(resultBox));
+    // Backend exact-entry cũng không có: quay về luồng Dictionary API cũ.
+    // Dùng timeout ngắn để không làm giao diện đứng quá lâu.
+    try {
+        const data = await dictV11FetchJSON(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(requested)}`, 2500, controller.signal);
+        if (data && Array.isArray(data) && data.length) {
+            const html = buildDictionaryBaseHTML(data, requested);
+            showResult(html);
             return;
         }
-        showResult(`<span style="color:red;">Không tìm thấy từ <b>${escapeHTML(word)}</b>.</span>`);
+    } catch (e) {}
+
+    const quick = dictV42QuickFallback(requested);
+    if (quick) {
+        showResult(`<div class="dict-word-head"><b style="font-size:1.45em;color:#540606;">${escapeHTML(requested)}</b>${speechButtonHTML(requested)}</div><div class="dict-pronunciation-card"><div class="dict-pronunciation-title">🔤 Phiên âm IPA</div><div class="dict-ipa-row"><span class="dict-ipa-label">IPA</span><code>${escapeHTML(quick.ipa || '')}</code></div></div><div style="padding:12px;background:#e8f5e9;border-radius:7px;"><b>🇻🇳 Nghĩa tiếng Việt:</b> ${escapeHTML(quick.vi || 'Chưa có nghĩa offline')}</div>`);
         return;
     }
-    if (!dictV11IsCurrent(requestId)) return;
-
-    const entries = data;
-    showResult(buildDictionaryBaseHTML(entries, word));
-
-    await dictV11Save(word, dictV26GetResultHTMLForCache(resultBox));
-
-    const transPromise = (async () => {
-        try {
-            const transUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(word)}&langpair=en|vi`;
-            const transData = await dictV11FetchJSON(transUrl, 3000, controller.signal);
-            const translated = transData?.responseData?.translatedText || '';
-            if (translated && translated.toLowerCase() !== word.toLowerCase()) return translated;
-        } catch(e) {}
-        return dictV42QuickFallback(word)?.vi || '';
-    })();
-
-    const familyPromise = renderWordFamily(word).catch(() => '');
-    const [vietnameseMeaning, familyHtml] = await Promise.all([transPromise, familyPromise]);
-    if (!dictV11IsCurrent(requestId)) return;
-
-    dictV11SetTranslation(vietnameseMeaning, word);
-    const familySlot = document.getElementById('dict-family-slot');
-    if (familySlot) familySlot.innerHTML = familyHtml || '<div style="color:#777;">🌿 Chưa tìm thấy họ từ mở rộng.</div>';
-
-    await dictV11Save(word, dictV26GetResultHTMLForCache(resultBox));
+    showResult(`<div style="color:#d00;padding:12px;">Không tìm thấy từ <b>${escapeHTML(requested)}</b>. Vui lòng thử lại!</div>`);
 };
+
 
 function speechButtonHTML(text) {
     const safe = escapeHTML(String(text || ''));
