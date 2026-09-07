@@ -521,7 +521,11 @@ window.stopPronunciationCheck = function() {
 // 1. Quản lý Tra từ điển (Đã tích hợp Anh - Việt, Phiên âm & Phát âm)
 window.openDictionaryModal = function() {
     const modal = document.getElementById('dict-modal');
-    if (modal) modal.style.display = 'flex';
+    if (modal) {
+        /* V43.2.1: Dictionary is a child of body, but force a layer above TOEIC. */
+        modal.style.zIndex = '200000';
+        modal.style.display = 'flex';
+    }
     const input = document.getElementById('dict-input');
     if (input) {
         input.focus();
