@@ -623,15 +623,6 @@ body.dark-mode #ebook-library-modal .ebook-card{background:#253239;border-color:
 body.dark-mode #ebook-library-modal .ebook-title{color:#fff;}
 
 
-/* V43.0 TOEIC LISTENING */
-.toeic-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:14000;align-items:center;justify-content:center;padding:10px;box-sizing:border-box}
-.toeic-panel{width:min(1100px,100%);max-height:95vh;overflow:auto;background:#fff;border-radius:16px;color:#17212b;box-shadow:0 18px 60px #0008}
-.toeic-head{display:flex;align-items:center;gap:10px;padding:14px 16px;background:#101820;color:#fff;position:sticky;top:0;z-index:2}
-.toeic-head h2{margin:0;flex:1;font-size:1.15em}.toeic-close{border:0;border-radius:8px;padding:8px 12px;background:#6c757d;color:#fff;font-weight:700;cursor:pointer}
-.toeic-body{padding:16px}.toeic-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:9px}.toeic-grid label{font-weight:700}.toeic-grid select,.toeic-grid input{width:100%;padding:10px;box-sizing:border-box;border:1px solid #ccd4da;border-radius:8px;margin-top:5px}
-.toeic-start{width:100%;margin-top:12px;padding:12px;border:0;border-radius:9px;background:#198754;color:#fff;font-weight:800;cursor:pointer;font-size:1em}
-.toeic-status{margin-top:10px;padding:9px;border-radius:8px;background:#f1f4f6}.toeic-quiz{margin-top:12px}.toeic-q{border:1px solid #d9e0e5;border-radius:12px;padding:14px;margin-bottom:12px;background:#fff}.toeic-q h3{margin:0 0 9px}.toeic-image{max-width:100%;max-height:330px;display:block;margin:8px auto;border-radius:8px}.toeic-audio{width:100%;margin:8px 0}.toeic-opt{display:block;padding:9px;margin:6px 0;border:1px solid #d5dde2;border-radius:8px;cursor:pointer}.toeic-opt input{margin-right:8px}.toeic-transcript{display:none;margin-top:8px;padding:9px;background:#fff8e1;border-radius:8px}.toeic-result{padding:15px;border-radius:10px;background:#e9f7ef;border:1px solid #b9dfc8;margin-top:12px}.toeic-admin{margin-top:10px;padding:10px;border:1px dashed #999;border-radius:9px;background:#f8f9fa;font-size:.9em}
-@media(max-width:800px){.toeic-modal{align-items:flex-start;padding:5px}.toeic-panel{max-height:100dvh;border-radius:10px}.toeic-body{padding:10px}.toeic-q{padding:11px}.toeic-image{max-height:250px}}
 
 </style>
 
@@ -666,7 +657,6 @@ body.dark-mode #ebook-library-modal .ebook-title{color:#fff;}
         <button type="button" class="start-tool-btn start-tool-ranking" onclick="window.openRankingModal()">🏆 Xem xếp hạng</button>
         <button type="button" class="start-tool-btn start-tool-library" onclick="window.openEbookLibrary()">📚 Thư viện</button>
         <button type="button" class="start-tool-btn start-tool-ebook-practice" onclick="window.openEbookPractice()">🎯 Luyện EBOOK</button>
-        <button type="button" class="start-tool-btn" style="background:#8a1538;color:#fff" onclick="window.openToeicListening()">🎧 TOEIC Listening</button>
         <button type="button" class="start-tool-btn" style="background:#155d8a;color:#fff" onclick="window.openToeicReading()">📖 TOEIC Reading</button>
     </div>
     
@@ -921,30 +911,7 @@ body.dark-mode #ebook-library-modal .ebook-title{color:#fff;}
 
 <!-- V30: CHỈ MỘT ENGINE TỪ ĐIỂN. Không nạp V17/V18/V28 patch để tránh ghi đè lookupWord. -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="script.js?v=43.3.5"></script>
-
-<!-- V43.0 TOEIC Listening Part 1-4 -->
-<div id="toeic-listening-modal" class="toeic-modal" role="dialog" aria-modal="true" aria-labelledby="toeic-title">
-  <div class="toeic-panel">
-    <div class="toeic-head"><h2 id="toeic-title">🎧 TOEIC Listening — Part 1 → Part 4</h2><button class="toeic-close" onclick="window.closeToeicListening()">✕ Đóng</button></div>
-    <div class="toeic-body">
-      <div id="toeic-setup">
-        <div class="toeic-grid">
-          <label>Part<select id="toeic-part"><option value="">Part 1 → 4</option><option>Part 1</option><option>Part 2</option><option>Part 3</option><option>Part 4</option></select></label>
-          <label>Chế độ<select id="toeic-mode"><option value="practice">🎯 Luyện tập</option><option value="exam">🏆 Thi</option></select></label>
-          <label>Số câu<select id="toeic-count"><option>5</option><option selected>10</option><option>20</option><option>50</option></select></label>
-          <label>Chủ đề<input id="toeic-topic" placeholder="Không bắt buộc"></label>
-        </div>
-        <div class="toeic-admin" id="toeic-admin-box" style="display:none">⚙️ Bảo/Bao: <button type="button" onclick="window.initToeicBank()" style="padding:7px 10px;border:0;border-radius:7px;background:#6f42c1;color:#fff;font-weight:700;cursor:pointer">Tạo/kiểm tra sheet NGAN_HANG_TOEIC_LISTENING</button></div>
-        <button class="toeic-start" onclick="window.startToeicListening()">▶ Bắt đầu TOEIC Listening</button>
-        <div id="toeic-status" class="toeic-status">Sẵn sàng. Ưu tiên ngân hàng Google Sheet; nếu thiếu sẽ bổ sung Part 1 từ dữ liệu local V43.3.2.</div>
-      </div>
-      <div id="toeic-quiz" class="toeic-quiz" style="display:none"></div>
-      <div id="toeic-result" class="toeic-result" style="display:none"></div>
-    </div>
-  </div>
-</div>
-
+<script src="script.js?v=43.3.7"></script>
 
 <style>
 .toeic-reading-modal{position:fixed;inset:0;background:rgba(0,0,0,.62);display:none;align-items:center;justify-content:center;z-index:10020;padding:14px}
