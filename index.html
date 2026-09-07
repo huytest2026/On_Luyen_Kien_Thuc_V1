@@ -634,6 +634,20 @@ body.dark-mode #ebook-library-modal .ebook-title{color:#fff;}
 @media(max-width:800px){.toeic-modal{align-items:flex-start;padding:5px}.toeic-panel{max-height:100dvh;border-radius:10px}.toeic-body{padding:10px}.toeic-q{padding:11px}.toeic-image{max-height:250px}}
 
 </style>
+
+<style id="v43-dictionary-over-toeic-fix">
+/* V43.2.1: Dictionary must always appear above TOEIC Reading/Listening modals */
+#dict-modal {
+    z-index: 200000 !important;
+}
+#dict-modal .dict-content {
+    position: relative;
+    z-index: 200001 !important;
+}
+#irregular-verbs-modal {
+    z-index: 190000 !important;
+}
+</style>
 </head>
 <body>
 
