@@ -6107,6 +6107,27 @@ window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e
     toeicSetStatus('✅ Đã hoàn thành bài TOEIC Listening.');
     window.scrollTo({top:0,behavior:'smooth'});
   }
+  async function toeicRefreshBank(showStatus=true){
+    const results=await Promise.allSettled([toeicJsonp('toeicbank',{}),toeicLoadLocalPart1()]);
+    const server=results[0].status==='fulfilled'&&Array.isArray(results[0].value?.items)?results[0].value.items:[];
+    const local=results[1].status==='fulfilled'&&Array.isArray(results[1].value)?results[1].value:[];
+    toeicBank=toeicMergeBank(server,local);
+    const p1Server=server.filter(q=>String(q.Part||'').trim()==='Part 1').length;
+    const p1Local=local.filter(q=>String(q.Part||'').trim()==='Part 1').length;
+    const p1=toeicBank.filter(q=>String(q.Part||'').trim()==='Part 1').length;
+    const pendingLocal=local.filter(q=>String(q.TrangThai||'').toLowerCase().includes('chờ kiểm tra')).length;
+    const hasPending=toeicBank.some(q=>String(q.TrangThai||'').toLowerCase().includes('chờ kiểm tra'));
+    if(showStatus){
+      if(toeicBank.length){
+        let msg='✅ Đã tải '+toeicBank.length+' câu TOEIC • Google Sheet: '+server.length+' • Local Part 1: '+p1Local+' • Part 1 dùng được: '+p1+'.';
+        if(hasPending) msg+=' ⚠️ '+pendingLocal+' câu Part 1 đang chờ kiểm tra OCR/đáp án.';
+        toeicSetStatus(msg);
+      }else{
+        toeicSetStatus('⚠️ Google Sheet chưa có câu và chưa đọc được dữ liệu local.');
+      }
+    }
+    return {server,local,p1Server,p1Local,p1};
+  }
   window.openToeicListening=function(){
     const m=document.getElementById('toeic-listening-modal');if(!m)return;
     m.style.display='flex';
@@ -6114,24 +6135,25 @@ window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e
     toeicSetStatus('⏳ Đang tải ngân hàng TOEIC Listening...');
     const q=document.getElementById('toeic-quiz');if(q){q.style.display='none';q.innerHTML='';}
     const r=document.getElementById('toeic-result');if(r){r.style.display='none';r.innerHTML='';}
-    Promise.allSettled([toeicJsonp('toeicbank',{}),toeicLoadLocalPart1()]).then(results=>{
-      const server=results[0].status==='fulfilled'&&Array.isArray(results[0].value?.items)?results[0].value.items:[];
-      const local=results[1].status==='fulfilled'&&Array.isArray(results[1].value)?results[1].value:[];
-      toeicBank=toeicMergeBank(server,local);
-      const p1=toeicBank.filter(q=>String(q.Part||'').trim()==='Part 1').length;
-      const hasPending=toeicBank.some(q=>String(q.TrangThai||'').toLowerCase().includes('chờ kiểm tra'));
-      if(toeicBank.length){
-        toeicSetStatus('✅ Đã tải '+toeicBank.length+' câu TOEIC (Part 1: '+p1+').'+(hasPending?' ⚠️ Part 1 đang có câu chờ kiểm tra OCR/đáp án.':'') );
-      }else{
-        toeicSetStatus('⚠️ Ngân hàng đang trống và chưa đọc được dữ liệu local.');
-      }
-    });
+    toeicRefreshBank(true).catch(e=>toeicSetStatus('❌ '+e.message));
   };
   window.closeToeicListening=function(){const m=document.getElementById('toeic-listening-modal');if(m)m.style.display='none';};
-  window.initToeicBank=function(){const ma=toeicStudent()||'Bảo';toeicJsonp('toeicinit',{maHS:ma}).then(r=>toeicSetStatus(r.ok?'✅ Sheet '+r.sheet+' đã sẵn sàng. Có '+r.count+' câu.':'❌ '+(r.message||'Không thực hiện được.'))).catch(e=>toeicSetStatus('❌ '+e.message));};
+  window.initToeicBank=function(){
+    const ma=toeicStudent()||'Bảo';
+    toeicSetStatus('⏳ Đang tạo/kiểm tra Sheet và tải lại ngân hàng...');
+    toeicJsonp('toeicinit',{maHS:ma}).then(async r=>{
+      if(!r.ok){toeicSetStatus('❌ '+(r.message||'Không thực hiện được.'));return;}
+      const b=await toeicRefreshBank(false);
+      let msg='✅ Sheet '+r.sheet+' đã sẵn sàng • Google Sheet: '+r.count+' câu • Local Part 1: '+b.p1Local+' câu • Tổng dùng được: '+toeicBank.length+' câu.';
+      if(b.p1Local) msg+=' 🎧 Có thể luyện Part 1 ngay cả khi Sheet chưa có dữ liệu.';
+      const hasPending=toeicBank.some(q=>String(q.TrangThai||'').toLowerCase().includes('chờ kiểm tra'));
+      if(hasPending) msg+=' ⚠️ Part 1 còn câu chờ kiểm tra OCR/đáp án.';
+      toeicSetStatus(msg);
+    }).catch(e=>toeicSetStatus('❌ '+e.message));
+  };
   window.startToeicListening=function(){
     const part=document.getElementById('toeic-part')?.value||'';toeicMode=document.getElementById('toeic-mode')?.value||'practice';const count=Number(document.getElementById('toeic-count')?.value||10);const topic=String(document.getElementById('toeic-topic')?.value||'').trim();
-    if(!toeicBank.length){toeicSetStatus('⚠️ Chưa có câu hỏi TOEIC. Hãy tạo sheet và nhập dữ liệu trước.');return;}
+    if(!toeicBank.length){toeicSetStatus('⚠️ Chưa tải được ngân hàng TOEIC. Hãy kiểm tra kết nối hoặc mở lại cửa sổ Listening.');return;}
     let pool=toeicBank.filter(q=>!topic||String(q.ChuDe||'').toLowerCase().includes(topic.toLowerCase()));
     toeicQuiz=toeicBuildQuiz(pool,count,part);
     if(!toeicQuiz.length){toeicSetStatus('⚠️ Không có câu phù hợp bộ lọc.');return;}
