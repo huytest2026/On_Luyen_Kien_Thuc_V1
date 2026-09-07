@@ -6007,7 +6007,7 @@ window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e
     return new Promise((resolve,reject)=>{
       const cb='__toeicCb_'+Date.now()+'_'+Math.random().toString(36).slice(2);
       const sc=document.createElement('script');
-      const q=new URLSearchParams(Object.assign({},params,{action,callback:cb,v:'43.0'}));
+      const q=new URLSearchParams(Object.assign({},params,{action,callback:cb,v:'43.3.2'}));
       let done=false;
       const timer=setTimeout(()=>finish(new Error('Hết thời gian kết nối máy chủ.')),12000);
       function finish(err,data){if(done)return;done=true;clearTimeout(timer);try{delete window[cb];}catch(e){}sc.remove();err?reject(err):resolve(data);}
