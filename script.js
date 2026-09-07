@@ -525,6 +525,7 @@ window.openDictionaryModal = function() {
         /* V43.2.1: Dictionary is a child of body, but force a layer above TOEIC. */
         modal.style.zIndex = '200000';
         modal.style.display = 'flex';
+        modal.setAttribute('aria-hidden', 'false');
     }
     const input = document.getElementById('dict-input');
     if (input) {
@@ -537,9 +538,22 @@ window.openDictionaryModal = function() {
     }
 };
 
+// V43.2.2: Khi đóng Dictionary sau khi bôi đen, không cho sự kiện mouseup/touchend
+// của chính nút X mở Dictionary lại ngay lập tức.
+let dictAutoOpenSuppressedUntil = 0;
+
 window.closeDictionaryModal = function() {
+    dictAutoOpenSuppressedUntil = Date.now() + 800;
     const modal = document.getElementById('dict-modal');
-    if (modal) modal.style.display = 'none';
+    if (modal) {
+        modal.style.display = 'none';
+        modal.setAttribute('aria-hidden', 'true');
+    }
+    // Xóa vùng bôi đen để lần bấm X đóng ngay và không bị auto-open lại.
+    try {
+        const sel = window.getSelection ? window.getSelection() : null;
+        if (sel) sel.removeAllRanges();
+    } catch (e) {}
 };
 
 // ==========================================
@@ -4122,6 +4136,8 @@ window.backToHome = function() {
 // TỰ ĐỘNG TRA TỪ KHI BÔI ĐEN HOẶC CHỌN TỪ TRÊN MÀN HÌNH
 document.addEventListener('mouseup', function() {
     setTimeout(() => {
+        // V43.2.2: bỏ qua mouseup phát sinh trong lúc vừa đóng Dictionary.
+        if (Date.now() < dictAutoOpenSuppressedUntil) return;
         let selectedText = window.getSelection().toString().trim();
         if (selectedText && selectedText.split(/\s+/).length === 1 && /^[a-zA-ZÀ-ỹ]+$/.test(selectedText)) {
             const modal = document.getElementById('dict-modal');
@@ -4139,6 +4155,8 @@ document.addEventListener('mouseup', function() {
 
 document.addEventListener('touchend', function() {
     setTimeout(() => {
+        // V43.2.2: bỏ qua touchend phát sinh trong lúc vừa đóng Dictionary.
+        if (Date.now() < dictAutoOpenSuppressedUntil) return;
         let selectedText = window.getSelection().toString().trim();
         if (selectedText && selectedText.split(/\s+/).length === 1 && /^[a-zA-ZÀ-ỹ]+$/.test(selectedText)) {
             const modal = document.getElementById('dict-modal');
