@@ -4893,9 +4893,15 @@ document.addEventListener('click', function(e) {
         var options = args[1];
 
         // Tự động kiểm tra nếu là lệnh gửi kết quả (POST) về Google Sheets
-        if (options && options.method === 'POST' && options.body) {
+        if (options && String(options.method || 'GET').toUpperCase() === 'POST' && options.body) {
             try {
-                var data = JSON.parse(options.body);
+                // Chỉ can thiệp payload JSON của luồng nộp bài.
+                // Ebook AI dùng URLSearchParams (x-www-form-urlencoded), không được JSON.parse.
+                var rawBody = typeof options.body === 'string' ? options.body.trim() : '';
+                if (!rawBody || (rawBody.charAt(0) !== '{' && rawBody.charAt(0) !== '[')) {
+                    return originalFetch.apply(this, args);
+                }
+                var data = JSON.parse(rawBody);
                 
                 // 1. Tự động đính kèm Số lần mở & Lịch sử máy tính khoa học
                 data.calcOpenCount = (window.calcLogs && window.calcLogs.openCount) ? window.calcLogs.openCount : 0;
