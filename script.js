@@ -6010,104 +6010,128 @@ window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e
     'Actual Test 08':[[153,154],[155,156],[157,159],[160,162],[163,165],[166,168],[169,171],[172,175],[176,180],[181,185],[186,190],[191,195],[196,200]]
   };
   function ensureP7Styles(){
-    if(document.getElementById('p7-v436-style'))return;
-    const s=document.createElement('style');s.id='p7-v436-style';s.textContent=`
+    if(document.getElementById('p7-v438-style'))return;
+    const s=document.createElement('style');s.id='p7-v438-style';s.textContent=`
       .p7-group-card{background:#fff;border:1px solid #d7e1ea;border-radius:14px;padding:12px;margin-top:10px;box-shadow:0 2px 8px rgba(20,40,60,.06)}
       .p7-source-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
       .p7-source-title{font-weight:900;color:#17324d;font-size:1.05rem}
       .p7-source-img{display:block;width:100%;max-width:1000px;height:auto;margin:0 auto;border-radius:10px;border:1px solid #cfd8df;background:#fff}
       .p7-zoom{border:0;border-radius:8px;padding:7px 10px;background:#e9f2f9;color:#174d73;font-weight:800;cursor:pointer}
-      .p7-q-title{margin:14px 0 7px;font-size:1.12rem;font-weight:900;color:#172b3a}
-      .p7-choice{display:flex;align-items:flex-start;gap:11px;width:100%;box-sizing:border-box;border:0;background:transparent;padding:7px 2px;margin-top:3px;cursor:pointer;font-weight:500;font-size:1.06rem;line-height:1.55;color:#111;transition:color .15s ease}
-      .p7-choice:hover{background:transparent}
+      .p7-questions-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 28px;margin-top:15px;align-items:start}
+      .p7-question{min-width:0;break-inside:avoid;page-break-inside:avoid;border-top:1px solid #edf1f4;padding-top:11px}
+      .p7-question:first-child,.p7-question:nth-child(2){border-top:0;padding-top:0}
+      .p7-q-title{margin:0 0 8px;font-size:1.08rem;font-weight:900;color:#172b3a;line-height:1.45}
+      .p7-choice{display:flex;align-items:flex-start;gap:10px;width:100%;box-sizing:border-box;border:0;background:transparent;padding:5px 2px;margin-top:2px;cursor:pointer;font-weight:500;font-size:1rem;line-height:1.5;color:#111;text-align:left;transition:background .15s ease,color .15s ease}
+      .p7-choice:hover{background:#f7f9fb;border-radius:6px}
       .p7-choice input{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
-      .p7-dot{flex:0 0 12px;width:12px;height:12px;border:2px solid #222;border-radius:50%;background:#fff;margin-top:.42em;box-sizing:border-box;transition:all .15s ease}
+      .p7-dot{flex:0 0 13px;width:13px;height:13px;border:2px solid #222;border-radius:50%;background:#fff;margin-top:.38em;box-sizing:border-box;transition:all .15s ease}
       .p7-choice.p7-correct{color:#126b35!important}
       .p7-choice.p7-correct .p7-dot{background:#22a05a;border-color:#168047;box-shadow:0 0 0 2px rgba(34,160,90,.12)}
-      .p7-choice.p7-wrong{color:#a52b2b!important}
+      .p7-choice.p7-wrong{color:#a52b2b!important;background:#fff4f4;border-radius:6px}
       .p7-choice.p7-wrong .p7-dot{background:#e05252;border-color:#c83232;box-shadow:0 0 0 2px rgba(224,82,82,.12)}
-      .p7-choice.p7-answer{color:#126b35!important}
+      .p7-choice.p7-answer{color:#126b35!important;background:#f1fbf4;border-radius:6px}
       .p7-choice.p7-answer .p7-dot{background:#22a05a;border-color:#168047}
       .p7-choice.p7-selected:not(.p7-correct):not(.p7-wrong) .p7-dot{background:#222;border-color:#222}
-      .p7-feedback{margin-top:10px;border-radius:10px;padding:10px 12px;line-height:1.65}
+      .p7-feedback{margin-top:8px;border-radius:9px;padding:8px 10px;line-height:1.55;font-size:.95rem}
       .p7-feedback.ok{background:#e7f7ec;border:1px solid #b8e1c5;color:#126b35}
       .p7-feedback.bad{background:#fff4f4;border:1px solid #efc0c0;color:#8d2b2b}
-      .p7-explain{margin-top:8px;background:#f7fbff;border:1px solid #cfe2ff;border-radius:10px;padding:10px 12px;line-height:1.7}
-      .p7-nav{display:flex;gap:8px;margin-top:12px}
-      .p7-nav button{flex:1;padding:11px;border:0;border-radius:9px;color:#fff;font-weight:900;cursor:pointer}
-      .p7-prev{background:#6c757d}.p7-next{background:#198754}
+      .p7-explain{margin-top:7px;background:#f7fbff;border:1px solid #cfe2ff;border-radius:9px;padding:8px 10px;line-height:1.6;font-size:.94rem}
+      .p7-submit-bar{display:flex;gap:8px;margin-top:18px;position:sticky;bottom:0;background:#fff;padding:9px 0;border-top:1px solid #e5eaee;z-index:3}
+      .p7-submit-bar button{flex:1;padding:11px;border:0;border-radius:9px;color:#fff;font-weight:900;cursor:pointer}
+      .p7-submit{background:#198754}
+      .p7-reset{background:#6c757d}
       .p7-review-item{margin-top:9px;padding:11px;border-radius:10px;background:#fff}
-      @media(max-width:600px){.p7-group-card{padding:8px}.p7-choice{font-size:1rem;padding:7px 1px}.p7-source-img{border-radius:7px}.p7-source-title{font-size:1rem}}
+      @media(max-width:760px){.p7-questions-grid{grid-template-columns:1fr;gap:12px}.p7-question:nth-child(2){border-top:1px solid #edf1f4;padding-top:11px}.p7-choice{font-size:.98rem}.p7-group-card{padding:8px}}
     `;document.head.appendChild(s);
   }
   function groupAsset(q){
     const m=String(q.ActualTest||'').match(/(\d+)/);const t=m?String(Number(m[1])).padStart(2,'0'):'01';
     const gi=String(q.GroupIndex||1).padStart(2,'0');
-    return 'TOEIC_PART7_GROUPS/t'+t+'_g'+gi+'.jpg';
+    return 'TOEIC_PART7_PASSAGES/t'+t+'_g'+gi+'.jpg';
   }
-  const jsonp=(action,params={})=>new Promise((resolve,reject)=>{const cb='__toeicR_'+Date.now()+'_'+Math.random().toString(36).slice(2),sc=document.createElement('script');const q=new URLSearchParams({...params,action,callback:cb,v:'43.7'});let done=false;const tm=setTimeout(()=>finish(new Error('Hết thời gian kết nối máy chủ.')),12000);function finish(e,d){if(done)return;done=true;clearTimeout(tm);try{delete window[cb]}catch(_){}sc.remove();e?reject(e):resolve(d)}window[cb]=d=>finish(null,d);sc.onerror=()=>finish(new Error('Không kết nối được máy chủ TOEIC Reading.'));sc.src=API_URL+'?'+q;document.head.appendChild(sc)});
+  const jsonp=(action,params={})=>new Promise((resolve,reject)=>{const cb='__toeicR_'+Date.now()+'_'+Math.random().toString(36).slice(2),sc=document.createElement('script');const q=new URLSearchParams({...params,action,callback:cb,v:'43.8'});let done=false;const tm=setTimeout(()=>finish(new Error('Hết thời gian kết nối máy chủ.')),12000);function finish(e,d){if(done)return;done=true;clearTimeout(tm);try{delete window[cb]}catch(_){}sc.remove();e?reject(e):resolve(d)}window[cb]=d=>finish(null,d);sc.onerror=()=>finish(new Error('Không kết nối được máy chủ TOEIC Reading.'));sc.src=API_URL+'?'+q;document.head.appendChild(sc)});
   const student=()=>String(document.getElementById('student-code')?.value||localStorage.getItem('saved_maHS')||'').trim();
   const status=t=>{const e=document.getElementById('toeic-reading-status');if(e)e.textContent=t};
-  const shuffle=a=>{const x=a.slice();for(let i=x.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[x[i],x[j]]=[x[j],x[i]]}return x};
   function localBank(){return Array.isArray(LOCAL_PART7)?LOCAL_PART7.slice():[]}
   function build(items,count,part,test){
     let pool=items.filter(q=>(!part||q.Part===part)&&(!test||q.ActualTest===test));
     if(!pool.length)return[];
     if(part==='Part 7'){
       pool.sort((a,b)=>String(a.ActualTest).localeCompare(String(b.ActualTest),'en',{numeric:true})||Number(a.CauSo)-Number(b.CauSo));
-      if(!test)pool=shuffle(pool);
-      return pool.slice(0,count);
+      // Part 7 is always sequential. If no specific test is chosen, shuffle by whole reading group,
+      // never by individual question, so the questions inside a group cannot jump out of order.
+      if(!test){
+        const gm=new Map();pool.forEach(q=>{const k=q.ActualTest+'::'+q.GroupID;(gm.get(k)||gm.set(k,[]).get(k)).push(q)});
+        const groups=Array.from(gm.values()).map(g=>g.sort((a,b)=>Number(a.CauSo)-Number(b.CauSo)));
+        for(let i=groups.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[groups[i],groups[j]]=[groups[j],groups[i]]}
+        pool=groups.flat();
+      }
+      return pool.slice(0,count).sort((a,b)=>Number(a.CauSo)-Number(b.CauSo));
     }
-    const groups={};pool.forEach(q=>{const g=q.Part==='Part 6'?String(q.GroupID||q.MaCau):String(q.MaCau);(groups[g]??=[]).push(q)});
-    let gs=shuffle(Object.values(groups).map(g=>g.sort((a,b)=>(+a.CauSo||0)-(+b.CauSo||0))));let out=[];for(const g of gs){if(out.length+g.length<=count||out.length===0)out.push(...g);if(out.length>=count)break}return out.slice(0,count)
+    return pool.slice(0,count);
   }
   function answerClass(letter,q,ans){
     const ca=String(q.DapAnDung||'').toUpperCase(), ua=String(ans||'').toUpperCase();
-    if(mode!=='practice'||!ua)return '';
-    if(letter===ua&&ua===ca)return ' p7-correct';
-    if(letter===ua&&ua!==ca)return ' p7-wrong';
-    if(letter===ca&&ua!==ca)return ' p7-correct p7-answer';
+    if(!ua)return '';
+    if(mode==='practice'){
+      if(letter===ua&&ua===ca)return ' p7-correct';
+      if(letter===ua&&ua!==ca)return ' p7-wrong';
+      if(letter===ca&&ua!==ca)return ' p7-correct p7-answer';
+    }
     return '';
   }
   function p7Text(q){
     return {question:String(q.CauHoi||'').replace(/^Câu\s+\d+\s*[—-]?\s*/i,'').trim(),a:String(q.DapAnA||''),b:String(q.DapAnB||''),c:String(q.DapAnC||''),d:String(q.DapAnD||'')};
   }
   function hasP7Text(t){return !!(t&&t.question&&t.a&&t.b&&t.c&&t.d);}
-  function render(i){
-    ensureP7Styles();const q=quiz[i];if(!q)return;current=i;
+  function groupQuestions(items){
+    const map=new Map();
+    items.slice().sort((a,b)=>Number(a.CauSo)-Number(b.CauSo)).forEach(q=>{const k=String(q.GroupID||q.MaCau);if(!map.has(k))map.set(k,[]);map.get(k).push(q)});
+    return Array.from(map.values());
+  }
+  function render(){
+    ensureP7Styles();
     const box=document.getElementById('toeic-reading-quiz');if(!box)return;
-    const ans=String(answers[q.MaCau]||'').toUpperCase(),ca=String(q.DapAnDung||'').toUpperCase();
-    let h='<div class="toeic-reading-question"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><h3 style="margin:0">📖 '+esc(q.ActualTest||q.Part)+' · Nhóm '+esc(q.GroupIndex||'')+'</h3><span style="font-weight:800">'+(i+1)+' / '+quiz.length+'</span></div>';
-    h+='<div class="p7-group-card"><div class="p7-source-head"><div class="p7-source-title">📄 Bài đọc / Memo / Notice — Câu '+esc(q.GroupStart||q.CauSo)+'–'+esc(q.GroupEnd||q.CauSo)+'</div><button class="p7-zoom" type="button" id="p7-zoom">🔍 Phóng to</button></div>';
-    h+='<img class="p7-source-img" id="p7-source-img" src="'+esc(groupAsset(q))+'" alt="Bài đọc nguồn Tomato TOEIC Compact Part 7 — '+esc(q.ActualTest)+' — câu '+esc(q.GroupStart||q.CauSo)+' đến '+esc(q.GroupEnd||q.CauSo)+'">';
-    h+='<div style="margin-top:7px;color:#66737c;font-size:.9rem;text-align:center">Nguồn: Sách Tomato TOEIC Compact Part 7 · ảnh nhóm nguồn được phóng lớn để đọc rõ.</div></div>';
-    const tx=p7Text(q);
-    if(hasP7Text(tx)){
-      h+='<div class="p7-q-title">'+esc(q.CauSo)+'. '+esc(tx.question)+'</div>';
-      [['A',tx.a],['B',tx.b],['C',tx.c],['D',tx.d]].forEach(o=>{const cls=answerClass(o[0],q,ans);h+='<label class="p7-choice'+cls+(ans===o[0]?' p7-selected':'')+'"><input type="radio" name="toeic-reading-answer" value="'+o[0]+'" '+(ans===o[0]?'checked':'')+'><span class="p7-dot" aria-hidden="true"></span><span><b>'+o[0]+'.</b> '+esc(o[1])+'</span></label>'});
-    }else{
-      h+='<div class="p7-q-title">Câu '+esc(q.CauSo)+' — Nội dung câu hỏi và lựa chọn đang được giữ theo ảnh nguồn của sách.</div>';
-      [['A','A'],['B','B'],['C','C'],['D','D']].forEach(o=>{const cls=answerClass(o[0],q,ans);h+='<label class="p7-choice'+cls+'"><input type="radio" name="toeic-reading-answer" value="'+o[0]+'" '+(ans===o[0]?'checked':'')+'> <span><b>'+o[0]+'.</b> Chọn đáp án '+o[0]+' (đối chiếu ảnh nguồn)</span></label>'});
-    }
-    if(mode==='practice'&&ans){if(ans===ca)h+='<div class="p7-feedback ok">✅ <b>Chính xác!</b> Bạn đã chọn đáp án đúng.</div>';else h+='<div class="p7-feedback bad">❌ <b>Chưa đúng.</b> Đáp án đúng: <b>'+esc(ca)+'</b></div><div class="p7-explain"><b>💡 Diễn giải</b><br>'+esc(q.GiaiThich||'Đối chiếu câu hỏi với bài đọc nguồn trong sách.')+'</div>'}
-    h+='<div class="p7-nav"><button id="toeic-r-prev" class="p7-prev" '+(i?'':'disabled')+'>◀ Trước</button><button id="toeic-r-next" class="p7-next">'+(i===quiz.length-1?'🏁 Nộp bài':'Tiếp ▶')+'</button></div></div>';
+    const groups=groupQuestions(quiz);
+    let h='<div class="toeic-reading-question"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><h3 style="margin:0">📖 '+esc(quiz[0]?.ActualTest||'Part 7')+'</h3><span style="font-weight:800">'+quiz.length+' câu · '+groups.length+' bài đọc</span></div>';
+    groups.forEach((g,gi)=>{
+      const first=g[0];
+      h+='<div class="p7-group-card"><div class="p7-source-head"><div class="p7-source-title">📄 Bài đọc / Memo / Notice — Câu '+esc(first.GroupStart||first.CauSo)+'–'+esc(first.GroupEnd||g[g.length-1].CauSo)+'</div><button class="p7-zoom" type="button" data-gi="'+gi+'">🔍 Phóng to</button></div>';
+      h+='<img class="p7-source-img" data-gi="'+gi+'" src="'+esc(groupAsset(first))+'" alt="Bài đọc nguồn Tomato TOEIC Compact Part 7 — '+esc(first.ActualTest)+' — câu '+esc(first.GroupStart||first.CauSo)+' đến '+esc(first.GroupEnd||g[g.length-1].CauSo)+'">';
+      h+='<div style="margin-top:7px;color:#66737c;font-size:.88rem;text-align:center">Nguồn: Sách Tomato TOEIC Compact Part 7 · ảnh chỉ hiển thị phần bài đọc, không chứa phần câu hỏi in dưới trang.</div>';
+      h+='<div class="p7-questions-grid">';
+      g.forEach(q=>{
+        const ans=String(answers[q.MaCau]||'').toUpperCase();
+        const tx=p7Text(q);
+        h+='<div class="p7-question" id="p7-question-'+esc(q.MaCau)+'"><div class="p7-q-title">'+esc(q.CauSo)+'. '+esc(tx.question)+'</div>';
+        [['A',tx.a],['B',tx.b],['C',tx.c],['D',tx.d]].forEach(o=>{
+          const cls=answerClass(o[0],q,ans);
+          h+='<label class="p7-choice'+cls+(ans===o[0]?' p7-selected':'')+'"><input type="radio" name="p7-'+esc(q.MaCau)+'" value="'+o[0]+'" '+(ans===o[0]?'checked':'')+'><span class="p7-dot" aria-hidden="true"></span><span><b>'+o[0]+'.</b> '+esc(o[1])+'</span></label>';
+        });
+        if(mode==='practice'&&ans){const ca=String(q.DapAnDung||'').toUpperCase();if(ans===ca)h+='<div class="p7-feedback ok">✅ <b>Chính xác!</b></div>';else h+='<div class="p7-feedback bad">❌ <b>Chưa đúng.</b> Đáp án đúng: <b>'+esc(ca)+'</b></div><div class="p7-explain"><b>💡 Diễn giải</b><br>'+esc(q.GiaiThich||'Đối chiếu câu hỏi với bài đọc nguồn trong sách.')+'</div>'}
+        h+='</div>';
+      });
+      h+='</div></div>';
+    });
+    h+='<div class="p7-submit-bar"><button id="p7-reset" class="p7-reset" type="button">↺ Làm lại</button><button id="p7-submit" class="p7-submit" type="button">🏁 Nộp bài</button></div></div>';
     box.innerHTML=h;
-    const zoom=document.getElementById('p7-zoom');if(zoom)zoom.onclick=()=>{const src=groupAsset(q);window.open(src,'_blank','noopener')};
-    box.querySelectorAll('input[name="toeic-reading-answer"]').forEach(e=>e.onchange=()=>{answers[q.MaCau]=e.value;render(i)});
-    document.getElementById('toeic-r-prev').onclick=()=>{save();render(i-1)};
-    document.getElementById('toeic-r-next').onclick=()=>{save();i===quiz.length-1?submit():render(i+1)};
+    box.querySelectorAll('input[type="radio"]').forEach(e=>e.onchange=()=>{const key=e.name.slice(3);answers[key]=e.value;render()});
+    box.querySelectorAll('.p7-zoom').forEach(btn=>btn.onclick=()=>{const g=groups[Number(btn.dataset.gi)];if(g?.[0])window.open(groupAsset(g[0]),'_blank','noopener')});
+    document.getElementById('p7-reset').onclick=()=>{answers={};render()};
+    document.getElementById('p7-submit').onclick=submit;
   }
-  function save(){const q=quiz[current],e=document.querySelector('#toeic-reading-quiz input[name="toeic-reading-answer"]:checked');if(q&&e)answers[q.MaCau]=e.value}
   async function submit(){
-    save();const d=quiz.map((q,i)=>({index:i+1,question:q.CauHoi||('Câu '+q.CauSo),userAnswer:answers[q.MaCau]||'',correctAnswer:q.DapAnDung||'',isCorrect:String(answers[q.MaCau]||'').toUpperCase()===String(q.DapAnDung||'').toUpperCase(),topic:q.ChuDe||('TOEIC '+q.Part),source:q.Source||'TOEIC',questionKey:q.MaCau||'',part:q.Part||'',groupId:q.GroupID||''}));
-    const c=d.filter(x=>x.isCorrect).length,t=d.length,score=t?Math.round(c/t*100)/10:0;const res=document.getElementById('toeic-reading-result');
+    const d=quiz.map((q,i)=>({index:i+1,question:q.CauHoi||('Câu '+q.CauSo),userAnswer:answers[q.MaCau]||'',correctAnswer:q.DapAnDung||'',isCorrect:String(answers[q.MaCau]||'').toUpperCase()===String(q.DapAnDung||'').toUpperCase(),topic:q.ChuDe||('TOEIC '+q.Part),source:q.Source||'TOEIC',questionKey:q.MaCau||'',part:q.Part||'',groupId:q.GroupID||''}));
+    const c=d.filter(x=>x.isCorrect).length,t=d.length,score=t?Math.round(c/t*100)/10:0;
+    const res=document.getElementById('toeic-reading-result');
     if(res){res.style.display='block';res.style.background='#eef7f0';res.style.borderRadius='10px';res.style.padding='12px';let review='<h3 style="margin-top:0">🎯 Kết quả TOEIC Reading</h3><b>'+c+' / '+t+' câu đúng</b><div style="margin-top:6px">Điểm quy đổi nội bộ: '+score+' / 10</div><div style="margin-top:14px"><h3 style="margin:0 0 8px">📋 Xem lại câu sai</h3>';
-      quiz.forEach((q,i)=>{const ua=String(answers[q.MaCau]||'').toUpperCase(),ca=String(q.DapAnDung||'').toUpperCase();const ok=ua===ca;review+='<div class="p7-review-item" style="border:1px solid '+(ok?'#b8e1c5':'#efc0c0')+';background:'+(ok?'#f1fbf4':'#fff4f4')+'"><b>Câu '+esc(q.CauSo)+': '+(ok?'🟢 Đúng':'🔴 Sai')+'</b> · Bạn chọn: <b>'+esc(ua||'—')+'</b> · Đáp án: <b>'+esc(ca||'—')+'</b>'+(ok?'':'<div class="p7-explain"><b>💡 Diễn giải</b><br>'+esc(q.GiaiThich||'Đối chiếu câu hỏi với bài đọc nguồn trong sách.')+'</div>')+'</div>';});
-      review+='</div>';res.innerHTML=review}
-    const ma=student();if(ma){try{await fetch(API_URL,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:JSON.stringify({maHS:ma,mon:'TOEIC Reading',score,level:'TOEIC',chuDe:'Part 5-7',made:'TOEIC Reading',details:d})})}catch(e){console.warn('TOEIC Reading submit',e)}}status('✅ Đã hoàn thành bài TOEIC Reading.');
+      quiz.forEach(q=>{const ua=String(answers[q.MaCau]||'').toUpperCase(),ca=String(q.DapAnDung||'').toUpperCase(),ok=ua===ca;review+='<div class="p7-review-item" style="border:1px solid '+(ok?'#b8e1c5':'#efc0c0')+';background:'+(ok?'#f1fbf4':'#fff4f4')+'"><b>Câu '+esc(q.CauSo)+': '+(ok?'🟢 Đúng':'🔴 Sai')+'</b> · Bạn chọn: <b>'+esc(ua||'—')+'</b> · Đáp án: <b>'+esc(ca||'—')+'</b>'+(ok?'':'<div class="p7-explain"><b>💡 Diễn giải</b><br>'+esc(q.GiaiThich||'Đối chiếu câu hỏi với bài đọc nguồn trong sách.')+'</div>')+'</div>';});
+      review+='</div>';res.innerHTML=review;res.scrollIntoView({behavior:'smooth',block:'start'})}
+    const ma=student();if(ma){try{await fetch(API_URL,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:JSON.stringify({maHS:ma,mon:'TOEIC Reading',score,level:'TOEIC',chuDe:'Part 5-7',made:'TOEIC Reading',details:d})})}catch(e){console.warn('TOEIC Reading submit',e)}}
+    status('✅ Đã hoàn thành bài TOEIC Reading: '+c+'/'+t+' câu đúng.');
   }
-  window.openToeicReading=function(){ensureP7Styles();const m=document.getElementById('toeic-reading-modal');if(!m)return;m.style.display='flex';document.getElementById('toeic-reading-admin').style.display=(window.isBaoAdmin&&window.isBaoAdmin())?'block':'none';const local=localBank();status('⏳ Đang tải ngân hàng TOEIC Reading...');jsonp('toeicreadingbank',{}).then(r=>{const server=Array.isArray(r?.items)?r.items:[];bank=server.filter(q=>q.Part!=='Part 7').concat(local);status('✅ Đã nạp Part 7 từ sách: '+local.length+' câu · 104 nhóm bài đọc · dấu tròn A-B-C-D có thể bấm trực tiếp; đúng xanh, sai đỏ.');}).catch(e=>{bank=local;status('⚠️ Không tải được Sheet; đang dùng ngân hàng Part 7 cục bộ: '+local.length+' câu · 104 nhóm.')})};
+  window.openToeicReading=function(){ensureP7Styles();const m=document.getElementById('toeic-reading-modal');if(!m)return;m.style.display='flex';document.getElementById('toeic-reading-admin').style.display=(window.isBaoAdmin&&window.isBaoAdmin())?'block':'none';const local=localBank();status('⏳ Đang tải ngân hàng TOEIC Reading...');jsonp('toeicreadingbank',{}).then(r=>{const server=Array.isArray(r?.items)?r.items:[];bank=server.filter(q=>q.Part!=='Part 7').concat(local);status('✅ Đã nạp Part 7 từ sách: '+local.length+' câu · 104 nhóm · câu hỏi hiển thị liên tục theo thứ tự; 2 cột đối xứng; dấu tròn A-B-C-D có thể bấm trực tiếp.');}).catch(e=>{bank=local;status('⚠️ Không tải được Sheet; đang dùng ngân hàng Part 7 cục bộ: '+local.length+' câu · 104 nhóm.')})};
   window.closeToeicReading=function(){const m=document.getElementById('toeic-reading-modal');if(m)m.style.display='none'};
-  window.initToeicReadingBank=function(){jsonp('toeicreadinginit',{maHS:student()||'Bảo'}).then(r=>{status(r.ok?'✅ '+(r.message||'Sheet '+r.sheet+' đã sẵn sàng.')+' Có '+r.count+' câu.':'❌ '+(r.message||'Không thực hiện được.'));if(r.ok) window.openToeicReading();}).catch(e=>status('❌ '+e.message))};
-  window.startToeicReading=function(){const part=document.getElementById('toeic-reading-part')?.value||'Part 7',topic=String(document.getElementById('toeic-reading-topic')?.value||'').trim().toLowerCase(),test=String(document.getElementById('toeic-reading-test')?.value||'');mode=document.getElementById('toeic-reading-mode')?.value||'practice';const count=Number(document.getElementById('toeic-reading-count')?.value||10);if(!bank.length){status('⚠️ Chưa có câu hỏi TOEIC Reading.');return}let pool=bank.filter(q=>!topic||String(q.ChuDe||'').toLowerCase().includes(topic));quiz=build(pool,count,part,test);if(!quiz.length){status('⚠️ Không có đủ câu phù hợp. Nếu chọn một Actual Test, tối đa hiện có 48 câu.');return}answers={};document.getElementById('toeic-reading-setup').style.display='none';document.getElementById('toeic-reading-quiz').style.display='block';document.getElementById('toeic-reading-result').style.display='none';render(0)};
+  window.initToeicReadingBank=function(){jsonp('toeicreadinginit',{maHS:student()||'Bảo'}).then(r=>{status(r.ok?'✅ '+(r.message||'Sheet '+r.sheet+' đã sẵn sàng.')+' Có '+r.count+' câu.':'❌ '+(r.message||'Không thực hiện được.'));if(r.ok)window.openToeicReading()}).catch(e=>status('❌ '+e.message))};
+  window.startToeicReading=function(){const part=document.getElementById('toeic-reading-part')?.value||'Part 7',topic=String(document.getElementById('toeic-reading-topic')?.value||'').trim().toLowerCase(),test=String(document.getElementById('toeic-reading-test')?.value||'');mode=document.getElementById('toeic-reading-mode')?.value||'practice';const count=Number(document.getElementById('toeic-reading-count')?.value||10);if(!bank.length){status('⚠️ Chưa có câu hỏi TOEIC Reading.');return}let pool=bank.filter(q=>!topic||String(q.ChuDe||'').toLowerCase().includes(topic));quiz=build(pool,count,part,test);if(!quiz.length){status('⚠️ Không có đủ câu phù hợp.');return}answers={};document.getElementById('toeic-reading-setup').style.display='none';document.getElementById('toeic-reading-quiz').style.display='block';document.getElementById('toeic-reading-result').style.display='none';render()};
 })();
