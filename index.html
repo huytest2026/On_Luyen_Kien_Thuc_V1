@@ -911,7 +911,7 @@ body.dark-mode #ebook-library-modal .ebook-title{color:#fff;}
 
 <!-- V30: CHỈ MỘT ENGINE TỪ ĐIỂN. Không nạp V17/V18/V28 patch để tránh ghi đè lookupWord. -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="script.js?v=43.3.9"></script>
+<script src="script.js?v=43.4.0"></script>
 
 <style>
 .toeic-reading-modal{position:fixed;inset:0;background:rgba(0,0,0,.62);display:none;align-items:center;justify-content:center;z-index:10020;padding:14px}
@@ -933,7 +933,8 @@ body.dark-mode #ebook-library-modal .ebook-title{color:#fff;}
     <div class="toeic-reading-body">
       <div id="toeic-reading-setup">
         <div class="toeic-reading-grid">
-          <label>Part<select id="toeic-reading-part"><option value="">Part 5 → Part 7</option><option>Part 5</option><option>Part 6</option><option>Part 7</option></select></label>
+          <label>Part<select id="toeic-reading-part"><option value="">Part 5 → Part 7</option><option>Part 5</option><option>Part 6</option><option selected>Part 7</option></select></label>
+          <label>Đề sách<select id="toeic-reading-test"><option value="">Tất cả Actual Test 01–08</option><option>Actual Test 01</option><option>Actual Test 02</option><option>Actual Test 03</option><option>Actual Test 04</option><option>Actual Test 05</option><option>Actual Test 06</option><option>Actual Test 07</option><option>Actual Test 08</option></select></label>
           <label>Chế độ<select id="toeic-reading-mode"><option value="practice">🎯 Luyện tập</option><option value="exam">🏆 Thi</option></select></label>
           <label>Số câu<select id="toeic-reading-count"><option selected>10</option><option>30</option><option>40</option><option>60</option></select></label>
           <label>Chủ đề<input id="toeic-reading-topic" placeholder="Không bắt buộc"></label>
