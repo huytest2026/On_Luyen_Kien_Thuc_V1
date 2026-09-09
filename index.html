@@ -639,6 +639,21 @@ body.dark-mode #ebook-library-modal .ebook-title{color:#fff;}
     z-index: 190000 !important;
 }
 </style>
+
+<style id="v44-bank-builder-css">
+#toeic-bank-builder-modal{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;align-items:flex-start;justify-content:center;z-index:210000;padding:12px;overflow:auto}
+#toeic-bank-builder-modal .builder-shell{width:min(1280px,100%);margin:auto;background:#f4f7fa;border-radius:16px;overflow:hidden;box-shadow:0 20px 80px rgba(0,0,0,.45)}
+#toeic-bank-builder-modal .builder-modal-head{background:#0f2433;color:#fff;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;position:sticky;top:0;z-index:20}
+#toeic-bank-builder-modal .builder-modal-head h2{font-size:16px;margin:0}
+#toeic-bank-builder-modal .builder-modal-close{border:0;border-radius:8px;padding:8px 12px;background:#6c757d;color:#fff;font-weight:800;cursor:pointer}
+#toeic-bank-builder-modal .builder-content{max-height:calc(100vh - 65px);overflow:auto}
+#toeic-bank-builder-modal .top{display:none}
+
+:root{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#18212b;background:#f4f7fa}
+*{box-sizing:border-box}body{margin:0}.top{background:#0f2433;color:#fff;padding:16px 20px;position:sticky;top:0;z-index:5}.top h1{font-size:20px;margin:0 0 4px}.top p{margin:0;color:#d7e4ec;font-size:13px}.wrap{max-width:1250px;margin:18px auto;padding:0 14px}.card{background:#fff;border:1px solid #dce4ea;border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 4px 16px rgba(0,0,0,.05)}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:end}.field{flex:1;min-width:180px}.field label{display:block;font-weight:800;font-size:13px;margin-bottom:5px}.field input,.field select,.field textarea{width:100%;padding:10px;border:1px solid #cfd9e0;border-radius:9px;font-size:14px;font-family:inherit}.btn{border:0;border-radius:9px;padding:10px 14px;font-weight:800;cursor:pointer;background:#155d8a;color:#fff}.btn.secondary{background:#66737c}.btn.green{background:#16794a}.btn.warn{background:#9a6500}.btn:disabled{opacity:.5;cursor:not-allowed}.status{padding:10px 12px;background:#eef4f8;border-radius:9px;margin-top:10px;white-space:pre-wrap}.progress{height:9px;background:#e8edf1;border-radius:99px;overflow:hidden;margin-top:10px}.progress>div{height:100%;width:0;background:#155d8a;transition:width .15s}.small{font-size:12px;color:#61707b}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.test-card{border:1px solid #dce4ea;border-radius:11px;padding:12px}.test-card h3{margin:0 0 8px;font-size:15px}.badge{display:inline-block;padding:3px 7px;border-radius:99px;background:#eef3f7;font-size:11px;font-weight:800;margin:2px}.table-wrap{overflow:auto}.table{width:100%;border-collapse:collapse;font-size:13px}.table th,.table td{border-bottom:1px solid #e7ecef;padding:7px;text-align:left;vertical-align:top}.table th{background:#f6f8fa;position:sticky;top:0}.ok{color:#16794a;font-weight:800}.bad{color:#b42318;font-weight:800}.review{display:grid;grid-template-columns:1fr 1fr;gap:12px}.review .passage img{width:100%;border:1px solid #ccd6dd;border-radius:8px;background:#fff}.qbox{border:1px solid #dce4ea;border-radius:10px;padding:10px}.qbox h4{margin:0 0 6px}.opt{margin:3px 0}.warnbox{padding:10px;border:1px solid #f0c36d;background:#fff8e6;border-radius:9px}.dangerbox{padding:10px;border:1px solid #f2b8b5;background:#fff3f2;border-radius:9px}.hidden{display:none!important}@media(max-width:850px){.grid,.review{grid-template-columns:1fr}.top{position:static}}
+
+#toeic-bank-builder-modal .wrap{max-width:1250px}
+</style>
 </head>
 <body>
 
@@ -658,6 +673,7 @@ body.dark-mode #ebook-library-modal .ebook-title{color:#fff;}
         <button type="button" class="start-tool-btn start-tool-library" onclick="window.openEbookLibrary()">📚 Thư viện</button>
         <button type="button" class="start-tool-btn start-tool-ebook-practice" onclick="window.openEbookPractice()">🎯 Luyện EBOOK</button>
         <button type="button" class="start-tool-btn" style="background:#155d8a;color:#fff" onclick="window.openToeicReading()">📖 TOEIC Reading</button>
+        <button type="button" class="start-tool-btn" style="background:#16794a;color:#fff" onclick="window.openToeicBankBuilder()">🛠 Tạo ngân hàng</button>
     </div>
     
     <label for="student-code">Mã học sinh:</label>
@@ -911,7 +927,10 @@ body.dark-mode #ebook-library-modal .ebook-title{color:#fff;}
 
 <!-- V30: CHỈ MỘT ENGINE TỪ ĐIỂN. Không nạp V17/V18/V28 patch để tránh ghi đè lookupWord. -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="script.js?v=44.0.3"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script type="module" src="toeic-bank-builder.js"></script>
+<script src="script.js?v=44.1.1"></script>
 
 <style>
 .toeic-reading-modal{position:fixed;inset:0;background:rgba(0,0,0,.62);display:none;align-items:center;justify-content:center;z-index:10020;padding:14px}
@@ -926,6 +945,80 @@ body.dark-mode #ebook-library-modal .ebook-title{color:#fff;}
 .toeic-reading-opt{display:block;border:1px solid #dfe4e8;border-radius:9px;padding:10px;margin:8px 0;cursor:pointer}.toeic-reading-opt:hover{background:#f5f8fa}
 @media(max-width:700px){.toeic-reading-grid{grid-template-columns:1fr 1fr}.toeic-reading-body{padding:10px}.toeic-reading-panel{max-height:96vh}}
 </style>
+
+
+<div id="toeic-bank-builder-modal" role="dialog" aria-modal="true" aria-labelledby="toeic-bank-builder-title">
+  <div class="builder-shell">
+    <div class="builder-modal-head">
+      <h2 id="toeic-bank-builder-title">🛠 Tạo ngân hàng TOEIC từ PDF</h2>
+      <button type="button" class="builder-modal-close" onclick="window.closeToeicBankBuilder()">✕ Đóng</button>
+    </div>
+    <div class="builder-content">
+      <main class="wrap">
+<section class="card">
+  <div class="row">
+    <div class="field" style="flex:2"><label>File PDF nguồn</label><input id="pdfFile" type="file" accept="application/pdf"></div>
+    <div class="field"><label>Trang bắt đầu <span class="small">(tự tìm)</span></label><input id="startPage" type="number" min="1" value="" placeholder="Tự động"></div>
+    <div class="field"><label>Trang kết thúc <span class="small">(tự tìm)</span></label><input id="endPage" type="number" min="1" value="" placeholder="Tự động"></div>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <button class="btn" id="btnScan">🔎 Tự động tìm Part 7</button>
+    <button class="btn secondary" id="btnStop" disabled>⏹ Dừng</button>
+    <button class="btn warn" id="btnOCR" disabled>🧠 OCR vùng Part 7</button><button class="btn" id="btnAnswers" disabled>🔑 Nhận diện Answer Sheet</button>
+    <button class="btn green" id="btnExport" disabled>📦 Xuất ZIP bản nháp</button><button class="btn" id="btnExportOfficial" disabled>🟢 Xuất ZIP chính thức</button>
+  </div>
+  <div id="status" class="status">Chưa chọn PDF.</div><div class="progress"><div id="bar"></div></div>
+  <p class="small">Builder ưu tiên text layer. Với PDF scan, Builder sẽ OCR nhẹ theo mẫu để <b>tự tìm trang bắt đầu Actual Test</b>, sau đó chỉ quét vùng Test cần thiết; các trang trước đó được bỏ qua. Hai ô trang chỉ là tùy chọn giới hạn phạm vi.</p>
+</section>
+
+<section class="card" id="summaryCard">
+  <h2 style="margin-top:0;font-size:18px">1. Phát hiện cấu trúc</h2>
+  <div id="summary" class="small">Chưa có dữ liệu.</div>
+  <div id="tests" class="grid" style="margin-top:12px"></div>
+</section>
+
+<section class="card">
+  <h2 style="margin-top:0;font-size:18px">2. Kiểm tra Bank</h2>
+  <div id="issues" class="warnbox">Chưa chạy OCR.</div>
+  <div class="table-wrap" style="margin-top:12px"><table class="table"><thead><tr><th>Test</th><th>Group</th><th>Câu</th><th>Câu hỏi / A–D</th><th>Đáp án</th><th>Trạng thái</th></tr></thead><tbody id="bankRows"></tbody></table></div>
+</section>
+
+<section class="card">
+  <h2 style="margin-top:0;font-size:18px">3. Nhận diện Answer Sheet</h2>
+  <div id="answerStatus" class="warnbox">Chưa nhận diện đáp án.</div>
+  <div class="table-wrap" style="margin-top:10px"><table class="table"><thead><tr><th>Test</th><th>Trang</th><th>Phát hiện</th><th>Đã gán</th><th>Độ tin cậy</th></tr></thead><tbody id="answerRows"></tbody></table></div>
+</section>
+
+<section class="card">
+  <h2 style="margin-top:0;font-size:18px">4. Rà soát / xác nhận</h2>
+  <div id="editorEmpty" class="small">Bấm vào một dòng câu hỏi ở bảng trên để kiểm tra và sửa. Chỉ khi có đủ câu hỏi, A/B/C/D và đáp án đúng mới có thể xác nhận.</div>
+  <div id="editor" class="hidden">
+    <div class="row">
+      <div class="field"><label>Actual Test / Group</label><input id="eGroup" readonly></div>
+      <div class="field"><label>Câu số</label><input id="eNo" readonly></div>
+      <div class="field"><label>Đáp án đúng</label><select id="eAns"><option value="">— Chưa xác định —</option><option>A</option><option>B</option><option>C</option><option>D</option></select></div>
+    </div>
+    <label style="display:block;font-weight:800;margin-top:10px">Câu hỏi</label><textarea id="eQ" rows="2" style="width:100%;padding:10px;border:1px solid #cfd9e0;border-radius:9px"></textarea>
+    <div class="row" style="margin-top:8px"><div class="field"><label>A</label><textarea id="eA" rows="2"></textarea></div><div class="field"><label>B</label><textarea id="eB" rows="2"></textarea></div><div class="field"><label>C</label><textarea id="eC" rows="2"></textarea></div><div class="field"><label>D</label><textarea id="eD" rows="2"></textarea></div></div>
+    <label style="display:block;font-weight:800;margin-top:10px">Diễn giải</label><textarea id="eExp" rows="3" style="width:100%;padding:10px;border:1px solid #cfd9e0;border-radius:9px"></textarea>
+    <div class="row" style="margin-top:10px"><button class="btn" id="btnSaveReview">💾 Lưu chỉnh sửa</button><button class="btn green" id="btnVerify">✅ Xác nhận câu này</button><button class="btn secondary" id="btnUnverify">↩ Đưa về cần kiểm tra</button></div>
+    <div id="editorPreview" class="small" style="margin-top:10px"></div>
+  </div>
+</section>
+
+<section class="card">
+  <h2 style="margin-top:0;font-size:18px">5. Nguyên tắc xuất</h2>
+  <div class="small">
+    <p>• Ảnh Passage được cắt để loại phần câu hỏi in bên dưới trang khi có thể xác định được vùng câu hỏi.</p>
+    <p>• Câu hỏi được sắp theo số tăng dần và nhóm theo “Questions xxx–yyy refer to…”.</p>
+    <p>• Dữ liệu OCR chưa chắc chắn được đánh dấu <b>SOURCE_OCR_TEXT_PENDING_VISUAL_REVIEW</b>, không tự coi là dữ liệu đã xác nhận.</p>
+    <p>• Builder tự tìm Actual Test trước; chỉ OCR chi tiết vùng Test đã xác định. Nếu không chắc chắn, hệ thống báo để kiểm tra thay vì tự đoán.</p><p>• ZIP xuất ra gồm Bank JSON và <b>TOEIC_PART7_PASSAGES/</b>; không sửa V43.8.</p>
+  </div>
+</section>
+</main>
+    </div>
+  </div>
+</div>
 
 <div id="toeic-reading-modal" class="toeic-reading-modal" role="dialog" aria-modal="true" aria-labelledby="toeic-reading-title">
   <div class="toeic-reading-panel">
