@@ -6064,7 +6064,7 @@ const LOCAL_PART7=[{"MaCau":"P7-T01-153","Part":"Part 7","CauSo":153,"ActualTest
   function build(items,count,part,test){
     let pool=items.map(normalize).filter(q=>(!part||q.Part===part)&&(!test||q.ActualTest===test));
     pool.sort((a,b)=>String(a.ActualTest).localeCompare(String(b.ActualTest),'en',{numeric:true})||a.CauSo-b.CauSo);
-    // V44.0.4: khi đã chọn một Actual Test cụ thể, luôn lấy toàn bộ câu của test đó.
+    // V44.0.5: khi đã chọn một Actual Test cụ thể, luôn lấy toàn bộ câu của test đó.
     const allSelected=!!String(test||'').trim();
     const wanted=allSelected ? Infinity : Math.max(1,count||10);
     if(part==='Part 7'){
