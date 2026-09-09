@@ -950,7 +950,7 @@ body.dark-mode #ebook-library-modal .ebook-title{color:#fff;}
 <div id="toeic-bank-builder-modal" role="dialog" aria-modal="true" aria-labelledby="toeic-bank-builder-title">
   <div class="builder-shell">
     <div class="builder-modal-head">
-      <h2 id="toeic-bank-builder-title">🛠 Tạo ngân hàng TOEIC từ PDF</h2>
+      <h2 id="toeic-bank-builder-title">🛠 Tạo ngân hàng TOEIC — Part 5 / 6 / 7</h2>
       <button type="button" class="builder-modal-close" onclick="window.closeToeicBankBuilder()">✕ Đóng</button>
     </div>
     <div class="builder-content">
@@ -962,7 +962,7 @@ body.dark-mode #ebook-library-modal .ebook-title{color:#fff;}
     <div class="field"><label>Trang kết thúc <span class="small">(tự tìm)</span></label><input id="endPage" type="number" min="1" value="" placeholder="Tự động"></div>
   </div>
   <div class="row" style="margin-top:10px">
-    <button class="btn" id="btnScan">🔎 Tự động tìm Part 7</button>
+    <button class="btn" id="btnScan">🔎 Phân tích Part 5 + 6 + 7</button>
     <button class="btn secondary" id="btnStop" disabled>⏹ Dừng</button>
     <button class="btn warn" id="btnOCR" disabled>🧠 OCR vùng Part 7</button><button class="btn" id="btnAnswers" disabled>🔑 Nhận diện Answer Sheet</button>
     <button class="btn green" id="btnExport" disabled>📦 Xuất ZIP bản nháp</button><button class="btn" id="btnExportOfficial" disabled>🟢 Xuất ZIP chính thức</button>
@@ -1012,7 +1012,7 @@ body.dark-mode #ebook-library-modal .ebook-title{color:#fff;}
     <p>• Ảnh Passage được cắt để loại phần câu hỏi in bên dưới trang khi có thể xác định được vùng câu hỏi.</p>
     <p>• Câu hỏi được sắp theo số tăng dần và nhóm theo “Questions xxx–yyy refer to…”.</p>
     <p>• Dữ liệu OCR chưa chắc chắn được đánh dấu <b>SOURCE_OCR_TEXT_PENDING_VISUAL_REVIEW</b>, không tự coi là dữ liệu đã xác nhận.</p>
-    <p>• Builder tự tìm Actual Test trước; chỉ OCR chi tiết vùng Test đã xác định. Nếu không chắc chắn, hệ thống báo để kiểm tra thay vì tự đoán.</p><p>• ZIP xuất ra gồm Bank JSON và <b>TOEIC_PART7_PASSAGES/</b>; không sửa V43.8.</p>
+    <p>• Builder tự tìm Actual Test trước; chỉ OCR chi tiết vùng Test đã xác định. Nếu không chắc chắn, hệ thống báo để kiểm tra thay vì tự đoán.</p><p>• ZIP xuất ra gồm Bank JSON và ảnh Part 7 trong <b>TOEIC_PART7_GROUPS/</b>; không sửa ngân hàng hiện tại.</p>
   </div>
 </section>
 </main>
