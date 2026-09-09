@@ -957,18 +957,19 @@ body.dark-mode #ebook-library-modal .ebook-title{color:#fff;}
       <main class="wrap">
 <section class="card">
   <div class="row">
-    <div class="field" style="flex:2"><label>File PDF nguồn</label><input id="pdfFile" type="file" accept="application/pdf"></div>
+    <div class="field" style="flex:2"><label>File PDF nguồn (đề)</label><input id="pdfFile" type="file" accept="application/pdf"></div>
+    <div class="field" style="flex:2"><label>File PDF đáp án <span class="small">(có thể chọn riêng)</span></label><input id="answerFile" type="file" accept="application/pdf"></div>
     <div class="field"><label>Trang bắt đầu <span class="small">(tự tìm)</span></label><input id="startPage" type="number" min="1" value="" placeholder="Tự động"></div>
     <div class="field"><label>Trang kết thúc <span class="small">(tự tìm)</span></label><input id="endPage" type="number" min="1" value="" placeholder="Tự động"></div>
   </div>
   <div class="row" style="margin-top:10px">
     <button class="btn" id="btnScan">🔎 Phân tích Part 5 + 6 + 7</button>
     <button class="btn secondary" id="btnStop" disabled>⏹ Dừng</button>
-    <button class="btn warn" id="btnOCR" disabled>🧠 OCR vùng Part 7</button><button class="btn" id="btnAnswers" disabled>🔑 Nhận diện Answer Sheet</button>
+    <button class="btn warn" id="btnOCR" disabled>🧠 OCR bổ sung câu thiếu</button><button class="btn" id="btnAnswers" disabled>🔑 Nạp PDF đáp án riêng</button>
     <button class="btn green" id="btnExport" disabled>📦 Xuất ZIP bản nháp</button><button class="btn" id="btnExportOfficial" disabled>🟢 Xuất ZIP chính thức</button>
   </div>
   <div id="status" class="status">Chưa chọn PDF.</div><div class="progress"><div id="bar"></div></div>
-  <p class="small">Builder ưu tiên text layer. Với PDF scan, Builder sẽ OCR nhẹ theo mẫu để <b>tự tìm trang bắt đầu Actual Test</b>, sau đó chỉ quét vùng Test cần thiết; các trang trước đó được bỏ qua. Hai ô trang chỉ là tùy chọn giới hạn phạm vi.</p>
+  <p class="small">Builder đọc <b>PDF đề</b> và có thể đọc thêm <b>PDF đáp án riêng</b>. Tự nhận diện Part 5 (101–140), Part 6 (141–152), Part 7 (153–200), sau đó rà soát trước khi xuất ngân hàng.</p>
 </section>
 
 <section class="card" id="summaryCard">
