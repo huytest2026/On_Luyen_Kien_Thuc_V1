@@ -5989,7 +5989,7 @@ window.addEventListener('load', () => { try { v16BackgroundPreload(); } catch (e
 })();
 
 /* ============================================================
- * V44.0 TOEIC READING ENGINE — Part 5 → Part 7
+ * V44.0.2 TOEIC READING ENGINE — Part 5 → Part 7
  * Unified answer interaction + 1 point/question + retry wrong questions.
  * Part 7 keeps group/passage source images; Part 5/6 use text bank.
  * ============================================================ */
@@ -6029,7 +6029,7 @@ const LOCAL_PART7=[{"MaCau":"P7-T01-153","Part":"Part 7","CauSo":153,"ActualTest
       .v44-explain{margin-top:7px;background:#f7fbff;border:1px solid #cfe2ff;border-radius:9px;padding:9px 10px;line-height:1.6;font-size:.94rem}
       .v44-group{grid-column:1/-1;background:#fff;border:1px solid #d7e1ea;border-radius:14px;padding:12px;margin-top:4px;box-shadow:0 2px 8px rgba(20,40,60,.06)}
       .v44-source-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
-      .v44-source-title{font-weight:900;color:#17324d}
+      .v44-source-title{font-weight:900;color:#17324d}.v44-group-count{font-size:.85em;font-weight:800;color:#66737c}
       .v44-source-img{display:block;width:100%;max-width:1000px;height:auto;margin:0 auto;border-radius:10px;border:1px solid #cfd8df;background:#fff}
       .v44-zoom{border:0;border-radius:8px;padding:7px 10px;background:#e9f2f9;color:#174d73;font-weight:800;cursor:pointer}
       .v44-submit{display:flex;gap:8px;position:sticky;bottom:0;background:#fff;padding:10px 0;border-top:1px solid #e5eaee;margin-top:18px;z-index:3}
@@ -6042,7 +6042,7 @@ const LOCAL_PART7=[{"MaCau":"P7-T01-153","Part":"Part 7","CauSo":153,"ActualTest
       @media(max-width:760px){.v44-grid{grid-template-columns:1fr;gap:12px}.v44-q:nth-child(2){border-top:1px solid #edf1f4;padding-top:12px}.v44-choice{font-size:.98rem}.v44-group{padding:8px}}
     `;document.head.appendChild(s);
   }
-  const jsonp=(action,params={})=>new Promise((resolve,reject)=>{const cb='__toeicR_'+Date.now()+'_'+Math.random().toString(36).slice(2),sc=document.createElement('script');const q=new URLSearchParams({...params,action,callback:cb,v:'44.0'});let done=false;const tm=setTimeout(()=>finish(new Error('Hết thời gian kết nối máy chủ.')),12000);function finish(e,d){if(done)return;done=true;clearTimeout(tm);try{delete window[cb]}catch(_){}sc.remove();e?reject(e):resolve(d)}window[cb]=d=>finish(null,d);sc.onerror=()=>finish(new Error('Không kết nối được máy chủ TOEIC Reading.'));sc.src=API_URL+'?'+q;document.head.appendChild(sc)});
+  const jsonp=(action,params={})=>new Promise((resolve,reject)=>{const cb='__toeicR_'+Date.now()+'_'+Math.random().toString(36).slice(2),sc=document.createElement('script');const q=new URLSearchParams({...params,action,callback:cb,v:'44.0.2'});let done=false;const tm=setTimeout(()=>finish(new Error('Hết thời gian kết nối máy chủ.')),12000);function finish(e,d){if(done)return;done=true;clearTimeout(tm);try{delete window[cb]}catch(_){}sc.remove();e?reject(e):resolve(d)}window[cb]=d=>finish(null,d);sc.onerror=()=>finish(new Error('Không kết nối được máy chủ TOEIC Reading.'));sc.src=API_URL+'?'+q;document.head.appendChild(sc)});
   const student=()=>String(document.getElementById('student-code')?.value||localStorage.getItem('saved_maHS')||'').trim();
   const status=t=>{const e=document.getElementById('toeic-reading-status');if(e)e.textContent=t};
   function localBank(){return Array.isArray(LOCAL_PART7)?LOCAL_PART7.slice():[]}
@@ -6064,7 +6064,19 @@ const LOCAL_PART7=[{"MaCau":"P7-T01-153","Part":"Part 7","CauSo":153,"ActualTest
   function build(items,count,part,test){
     let pool=items.map(normalize).filter(q=>(!part||q.Part===part)&&(!test||q.ActualTest===test));
     pool.sort((a,b)=>String(a.ActualTest).localeCompare(String(b.ActualTest),'en',{numeric:true})||a.CauSo-b.CauSo);
-    return pool.slice(0,Math.max(1,count||10));
+    const wanted=Math.max(1,count||10);
+    if(part==='Part 7'){
+      // V44.0.2: Part 7 luôn lấy trọn nhóm bài đọc, không cắt giữa GroupID.
+      const groups=[];const seen=new Set();
+      pool.forEach(q=>{const k=String(q.ActualTest||'')+'::'+String(q.GroupID||q.MaCau);if(!seen.has(k)){seen.add(k);groups.push(k)}});
+      const byKey=new Map();pool.forEach(q=>{const k=String(q.ActualTest||'')+'::'+String(q.GroupID||q.MaCau);if(!byKey.has(k))byKey.set(k,[]);byKey.get(k).push(q)});
+      let out=[];
+      for(const k of groups){const g=(byKey.get(k)||[]).slice().sort((a,b)=>a.CauSo-b.CauSo);if(!g.length)continue; if(out.length && out.length+g.length>wanted) break; out=out.concat(g); if(out.length>=wanted)break;}
+      // Nếu requested nhỏ hơn một nhóm, vẫn phải lấy đủ nhóm đó.
+      if(!out.length && groups.length) out=(byKey.get(groups[0])||[]).slice().sort((a,b)=>a.CauSo-b.CauSo);
+      return out;
+    }
+    return pool.slice(0,wanted);
   }
   function groupAsset(q){
     const m=String(q.ActualTest||'').match(/(\d+)/);const t=m?String(Number(m[1])).padStart(2,'0'):'01';
@@ -6105,7 +6117,9 @@ const LOCAL_PART7=[{"MaCau":"P7-T01-153","Part":"Part 7","CauSo":153,"ActualTest
     if(part==='Part 7'){
       const groups=[];const map=new Map();quiz.slice().sort((a,b)=>a.CauSo-b.CauSo).forEach(q=>{const k=q.ActualTest+'::'+(q.GroupID||q.MaCau);if(!map.has(k))map.set(k,[]);map.get(k).push(q)});map.forEach(g=>groups.push(g));
       groups.forEach(g=>{
-        const first=g[0];h+='<div class="v44-group"><div class="v44-source-head"><div class="v44-source-title">📄 Bài đọc / Memo / Notice — Câu '+esc(first.GroupStart||first.CauSo)+'–'+esc(first.GroupEnd||g[g.length-1].CauSo)+'</div><button class="v44-zoom" type="button" data-src="'+esc(groupAsset(first))+'">🔍 Phóng to</button></div>';
+        g.sort((a,b)=>a.CauSo-b.CauSo);
+        const first=g[0];
+        h+='<div class="v44-group"><div class="v44-source-head"><div class="v44-source-title">📄 Bài đọc / Memo / Notice — Câu '+esc(first.GroupStart||first.CauSo)+'–'+esc(first.GroupEnd||g[g.length-1].CauSo)+' <span class="v44-group-count">('+g.length+' câu)</span></div><button class="v44-zoom" type="button" data-src="'+esc(groupAsset(first))+'">🔍 Phóng to</button></div>';
         h+='<img class="v44-source-img" src="'+esc(groupAsset(first))+'" alt="Bài đọc nguồn">';
         h+='<div class="v44-mini" style="text-align:center;margin-top:6px">Nguồn: Sách Tomato TOEIC Compact Part 7 · ảnh chỉ hiển thị phần bài đọc.</div><div class="v44-grid">';
         g.forEach(q=>h+=renderQuestion(q));h+='</div></div>';
@@ -6145,7 +6159,20 @@ const LOCAL_PART7=[{"MaCau":"P7-T01-153","Part":"Part 7","CauSo":153,"ActualTest
     status('🔄 Đang làm lại '+quiz.length+' câu sai. Mỗi câu đúng = 1 điểm ôn tập; không cộng vào điểm Test ban đầu.');
   }
   window.openToeicReading=function(){ensureStyles();const m=document.getElementById('toeic-reading-modal');if(!m)return;m.style.display='flex';document.getElementById('toeic-reading-admin').style.display=(window.isBaoAdmin&&window.isBaoAdmin())?'block':'none';const local=localBank();status('⏳ Đang tải ngân hàng TOEIC Reading...');jsonp('toeicreadingbank',{}).then(r=>{const server=Array.isArray(r?.items)?r.items:[];bank=server.filter(q=>q.Part!=='Part 7').map(normalize).concat(local.map(normalize));status('✅ Đã nạp Part 5/6 từ Sheet + Part 7 từ sách: '+local.length+' câu · 104 nhóm. Dấu tròn A-B-C-D có thể bấm trực tiếp.');}).catch(e=>{bank=local.map(normalize);status('⚠️ Không tải được Sheet; đang dùng ngân hàng Part 7 cục bộ: '+local.length+' câu.')})};
-  window.closeToeicReading=function(){const m=document.getElementById('toeic-reading-modal');if(m)m.style.display='none'};
+  window.closeToeicReading=function(){
+    const m=document.getElementById('toeic-reading-modal');
+    if(m)m.style.display='none';
+    // V44.0.1: mỗi lần đóng Reading phải kết thúc phiên làm bài hiện tại.
+    // Khi mở lại, luôn trở về màn hình ban đầu để chọn Part + số câu + chế độ.
+    const setup=document.getElementById('toeic-reading-setup');
+    const quizBox=document.getElementById('toeic-reading-quiz');
+    const result=document.getElementById('toeic-reading-result');
+    if(setup)setup.style.display='block';
+    if(quizBox){quizBox.style.display='none';quizBox.innerHTML='';}
+    if(result){result.style.display='none';result.innerHTML='';}
+    answers={}; quiz=[]; submitted=false; round=1; lastScore=0; lastWrong=[];
+    status('Sẵn sàng. Hãy chọn Part 5, Part 6 hoặc Part 7 và số câu rồi bấm "Bắt đầu TOEIC Reading".');
+  };
   window.initToeicReadingBank=function(){jsonp('toeicreadinginit',{maHS:student()||'Bảo'}).then(r=>{status(r.ok?'✅ '+(r.message||'Sheet đã sẵn sàng.')+' Có '+r.count+' câu.':'❌ '+(r.message||'Không thực hiện được.'));if(r.ok)window.openToeicReading()}).catch(e=>status('❌ '+e.message))};
   window.startToeicReading=function(){const part=document.getElementById('toeic-reading-part')?.value||'Part 7',topic=String(document.getElementById('toeic-reading-topic')?.value||'').trim().toLowerCase(),test=String(document.getElementById('toeic-reading-test')?.value||'');mode=document.getElementById('toeic-reading-mode')?.value||'practice';const count=Number(document.getElementById('toeic-reading-count')?.value||10);if(!bank.length){status('⚠️ Chưa có câu hỏi TOEIC Reading.');return}let pool=bank.filter(q=>!topic||String(q.ChuDe||'').toLowerCase().includes(topic));quiz=build(pool,count,part,test);if(!quiz.length){status('⚠️ Không có đủ câu phù hợp.');return}answers={};submitted=false;round=1;lastScore=0;lastWrong=[];document.getElementById('toeic-reading-setup').style.display='none';document.getElementById('toeic-reading-quiz').style.display='block';document.getElementById('toeic-reading-result').style.display='none';render()};
 })();
