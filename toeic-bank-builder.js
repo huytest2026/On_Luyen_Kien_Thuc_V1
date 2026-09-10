@@ -1,13 +1,9 @@
 /**
- * TOEIC Test Bank Builder & Parser Script
- * Phiên bản cập nhật đầy đủ - Hỗ trợ chuẩn hóa Test 01 đến Test 04+
+ * TOEIC Test Bank Builder - Fully Preserved & Browser-Safe Version
+ * Tương thích hoàn toàn với Trình duyệt (Frontend) và Node.js (Backend)
  */
-
-const fs = require('fs');
-
 class ToeicBankBuilder {
   constructor() {
-    // Dải câu hỏi chuẩn TOEIC
     this.partRanges = {
       PART_5: { start: 101, end: 140, total: 40 },
       PART_6: { start: 141, end: 152, total: 12 },
@@ -15,25 +11,27 @@ class ToeicBankBuilder {
     };
   }
 
-  /**
-   * 1. Trích xuất tên Test và Mã Test từ tên file hoặc nội dung
-   */
+  /** 1. Lấy thông tin Test & Mã Test */
   extractTestInfo(text, filename = '') {
-    const combinedText = `${filename}\n${text.slice(0, 500)}`;
-    const match = combinedText.match(/(?:Test|Đề|De)\s*0*(\d+)/i);
-    const testNum = match ? parseInt(match[1], 10) : 1;
-    const formattedId = `TEST_${String(testNum).padStart(2, '0')}`;
-    
-    return {
-      testId: formattedId,
-      testName: `TOEIC Test ${String(testNum).padStart(2, '0')}`
-    };
+    try {
+      const combinedText = `${filename}\n${String(text || '').slice(0, 500)}`;
+      const match = combinedText.match(/(?:Test|Đề|De)\s*0*(\d+)/i);
+      const testNum = match ? parseInt(match[1], 10) : 1;
+      const formattedId = `TEST_${String(testNum).padStart(2, '0')}`;
+      
+      return {
+        testId: formattedId,
+        testName: `TOEIC Test ${String(testNum).padStart(2, '0')}`
+      };
+    } catch (err) {
+      return { testId: 'TEST_01', testName: 'TOEIC Test 01' };
+    }
   }
 
-  /**
-   * 2. Phân tách phần Đề thi và Bảng đáp án cuối file
-   */
+  /** 2. Tách Đề thi & Bảng đáp án */
   splitContentAndAnswerKey(rawText) {
+    if (!rawText) return { questionsText: '', answersText: '' };
+
     const keyMarkers = [
       /ĐÁP\s*ÁN\s*VÀ\s*GIẢI\s*THÍCH/i,
       /ĐÁP\s*ÁN/i,
@@ -44,10 +42,8 @@ class ToeicBankBuilder {
     let splitIndex = -1;
     for (const marker of keyMarkers) {
       const match = rawText.match(marker);
-      if (match && match.index !== undefined) {
-        if (match.index > splitIndex) {
-          splitIndex = match.index;
-        }
+      if (match && match.index !== undefined && match.index > splitIndex) {
+        splitIndex = match.index;
       }
     }
 
@@ -61,50 +57,40 @@ class ToeicBankBuilder {
     return { questionsText: rawText, answersText: '' };
   }
 
-  /**
-   * 3. Bóc tách Bảng đáp án (Answer Key)
-   */
+  /** 3. Phân tích Bảng đáp án */
   parseAnswerKeys(answersText) {
     const answerMap = new Map();
     if (!answersText) return answerMap;
 
-    // Pattern tìm các dạng: "1. A", "Question 1: B", "101. C", "1 - D"
     const regex = /(?:Question|Câu)?\s*(\d+)[\.\:\-\s]+([A-D])\b/gi;
     let match;
 
     while ((match = regex.exec(answersText)) !== null) {
-      let qNum = parseInt(match[1], 10);
+      const qNum = parseInt(match[1], 10);
       const answer = match[2].toUpperCase();
 
-      // Ánh xạ số thứ tự từ 1-40/1-12 về số TOEIC chuẩn nếu bảng đáp án ghi số cục bộ
-      if (qNum >= 1 && qNum <= 40) {
-        answerMap.set(qNum + 100, answer); // Part 5: 1 -> 101
-      }
-      if (qNum >= 1 && qNum <= 12) {
-        answerMap.set(qNum + 140, answer); // Part 6: 1 -> 141
-      }
-      
-      // Luôn lưu cả số gốc để phòng trường hợp đã là 101-140
+      if (qNum >= 1 && qNum <= 40) answerMap.set(qNum + 100, answer);
+      if (qNum >= 1 && qNum <= 12) answerMap.set(qNum + 140, answer);
       answerMap.set(qNum, answer);
+
+      if (match.index === regex.lastIndex) regex.lastIndex++;
     }
 
     return answerMap;
   }
 
-  /**
-   * 4. Phân chia văn bản theo các Part (Part 5, Part 6, Part 7)
-   */
+  /** 4. Chia theo Part (Part 5, 6, 7) */
   splitByParts(text) {
     const parts = [];
+    if (!text) return parts;
+
     const partRegex = /(PART\s*[567]|PHẦN\s*[567]|BÀI\s*\d+)/gi;
     const matches = [];
     let match;
 
     while ((match = partRegex.exec(text)) !== null) {
-      matches.push({
-        index: match.index,
-        header: match[0]
-      });
+      matches.push({ index: match.index, header: match[0] });
+      if (match.index === partRegex.lastIndex) partRegex.lastIndex++;
     }
 
     if (matches.length === 0) {
@@ -129,12 +115,12 @@ class ToeicBankBuilder {
     return parts;
   }
 
-  /**
-   * 5. Tách thành từng khối câu hỏi riêng biệt
-   */
+  /** 5. Tách thành từng khối câu hỏi */
   splitQuestionBlocks(partText) {
     const blocks = [];
-    const qHeaderRegex = /(?:Question|Câu)\s*(\d+)[\:\.]?|(?<=^|\n)(\d+)[\.\:]\s+/gi;
+    if (!partText) return blocks;
+
+    const qHeaderRegex = /(?:Question|Câu)\s*(\d+)[\:\.]?|(?:^|\n)\s*(\d+)[\.\:]\s+/gi;
     const matches = [];
     let match;
 
@@ -144,6 +130,7 @@ class ToeicBankBuilder {
         index: match.index,
         num: parseInt(numStr, 10)
       });
+      if (match.index === qHeaderRegex.lastIndex) qHeaderRegex.lastIndex++;
     }
 
     for (let i = 0; i < matches.length; i++) {
@@ -158,11 +145,8 @@ class ToeicBankBuilder {
     return blocks;
   }
 
-  /**
-   * 6. Phân tích 1 câu hỏi cụ thể (Thân câu hỏi & các lựa chọn A, B, C, D)
-   */
+  /** 6. Trích xuất Thân câu hỏi & Lựa chọn A, B, C, D */
   parseSingleQuestion(qText, localNum, partName) {
-    // Tự động map sang số câu hỏi chuẩn TOEIC
     let standardNum = localNum;
     if (partName === 'PART_5' && localNum >= 1 && localNum <= 40) {
       standardNum = 100 + localNum;
@@ -173,10 +157,8 @@ class ToeicBankBuilder {
     const choices = { A: '', B: '', C: '', D: '' };
     let questionBody = qText;
 
-    // Tìm vị trí xuất hiện đáp án A.
     const firstOptIndex = qText.search(/A[\.\:\)]\s+/i);
     if (firstOptIndex !== -1) {
-      // Lấy phần câu hỏi trước đáp án A
       questionBody = qText
         .substring(0, firstOptIndex)
         .replace(/(?:Question|Câu)\s*\d+[\:\.]?/i, '')
@@ -190,6 +172,7 @@ class ToeicBankBuilder {
         const key = match[1].toUpperCase();
         const val = match[2].trim().replace(/\s+/g, ' ');
         choices[key] = val;
+        if (match.index === optRegex.lastIndex) optRegex.lastIndex++;
       }
     }
 
@@ -199,65 +182,62 @@ class ToeicBankBuilder {
       part: partName,
       stem: questionBody,
       options: choices,
-      answer: '' // Ghép đáp án sau
+      answer: ''
     };
   }
 
-  /**
-   * 7. Hàm xử lý chính (Main Entrypoint)
-   */
+  /** 7. Hàm xử lý chính (Bao bọc Try-Catch chống treo UI) */
   buildBank(rawText, filename = '') {
-    // B1: Lấy thông tin Test
-    const { testId, testName } = this.extractTestInfo(rawText, filename);
+    try {
+      const { testId, testName } = this.extractTestInfo(rawText, filename);
+      const { questionsText, answersText } = this.splitContentAndAnswerKey(rawText);
 
-    // B2: Tách câu hỏi và đáp án
-    const { questionsText, answersText } = this.splitContentAndAnswerKey(rawText);
+      const questions = [];
+      const partSections = this.splitByParts(questionsText);
 
-    // B3: Bóc tách danh sách câu hỏi
-    const questions = [];
-    const partSections = this.splitByParts(questionsText);
+      for (const section of partSections) {
+        const qBlocks = this.splitQuestionBlocks(section.content);
+        qBlocks.forEach((block) => {
+          const q = this.parseSingleQuestion(block.text, block.localNum, section.partName);
+          if (q && q.stem) {
+            questions.push(q);
+          }
+        });
+      }
 
-    for (const section of partSections) {
-      const qBlocks = this.splitQuestionBlocks(section.content);
-      qBlocks.forEach((block) => {
-        const q = this.parseSingleQuestion(block.text, block.localNum, section.partName);
-        if (q && q.stem) {
-          questions.push(q);
+      const answerMap = this.parseAnswerKeys(answersText);
+
+      questions.forEach((q) => {
+        if (answerMap.has(q.questionNo)) {
+          q.answer = answerMap.get(q.questionNo);
+        } else if (answerMap.has(q.originalNo)) {
+          q.answer = answerMap.get(q.originalNo);
         }
       });
+
+      return {
+        success: true,
+        testId,
+        testName,
+        totalQuestions: questions.length,
+        questions
+      };
+    } catch (error) {
+      console.error('Lỗi khi bóc tách ngân hàng câu hỏi:', error);
+      return {
+        success: false,
+        error: error.message,
+        totalQuestions: 0,
+        questions: []
+      };
     }
-
-    // B4: Bóc tách bảng đáp án
-    const answerMap = this.parseAnswerKeys(answersText);
-
-    // B5: Gắn đáp án đúng vào câu hỏi
-    questions.forEach((q) => {
-      if (answerMap.has(q.questionNo)) {
-        q.answer = answerMap.get(q.questionNo);
-      } else if (answerMap.has(q.originalNo)) {
-        q.answer = answerMap.get(q.originalNo);
-      }
-    });
-
-    return {
-      testId,
-      testName,
-      totalQuestions: questions.length,
-      questions
-    };
   }
 }
 
-// Export class để sử dụng trong các module khác
-module.exports = ToeicBankBuilder;
-
-// --- VÍ DỤ SỬ DỤNG ---
-/*
-if (require.main === module) {
-  const builder = new ToeicBankBuilder();
-  const rawData = fs.readFileSync('De 4- TOEIC.txt', 'utf8');
-  const result = builder.buildBank(rawData, 'De 4- TOEIC.pdf');
-  
-  console.log(JSON.stringify(result, null, 2));
+// Khai báo an toàn trên Trình duyệt Web lẫn Node.js
+if (typeof window !== 'undefined') {
+  window.ToeicBankBuilder = ToeicBankBuilder;
 }
-*/
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = ToeicBankBuilder;
+}
