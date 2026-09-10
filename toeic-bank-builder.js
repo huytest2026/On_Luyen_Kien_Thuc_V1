@@ -1,6 +1,6 @@
 /**
- * TOEIC Test Bank Builder - Fully Preserved & Browser-Safe Version
- * Tương thích hoàn toàn với Trình duyệt (Frontend) và Node.js (Backend)
+ * TOEIC Test Bank Builder - Ultra High Performance & Browser Safe
+ * Thuật toán phân tích theo dòng (Line-by-Line), chống đơ UI 100%
  */
 class ToeicBankBuilder {
   constructor() {
@@ -11,182 +11,181 @@ class ToeicBankBuilder {
     };
   }
 
-  /** 1. Lấy thông tin Test & Mã Test */
+  /** 1. Lấy thông tin Đề thi */
   extractTestInfo(text, filename = '') {
-    try {
-      const combinedText = `${filename}\n${String(text || '').slice(0, 500)}`;
-      const match = combinedText.match(/(?:Test|Đề|De)\s*0*(\d+)/i);
-      const testNum = match ? parseInt(match[1], 10) : 1;
-      const formattedId = `TEST_${String(testNum).padStart(2, '0')}`;
-      
-      return {
-        testId: formattedId,
-        testName: `TOEIC Test ${String(testNum).padStart(2, '0')}`
-      };
-    } catch (err) {
-      return { testId: 'TEST_01', testName: 'TOEIC Test 01' };
-    }
+    const combinedText = `${filename}\n${String(text || '').slice(0, 500)}`;
+    const match = combinedText.match(/(?:Test|Đề|De)\s*0*(\d+)/i);
+    const testNum = match ? parseInt(match[1], 10) : 1;
+    return {
+      testId: `TEST_${String(testNum).padStart(2, '0')}`,
+      testName: `TOEIC Test ${String(testNum).padStart(2, '0')}`
+    };
   }
 
-  /** 2. Tách Đề thi & Bảng đáp án */
+  /** 2. Tách Đề thi và Bảng đáp án */
   splitContentAndAnswerKey(rawText) {
     if (!rawText) return { questionsText: '', answersText: '' };
+    
+    const lines = rawText.split(/\r?\n/);
+    let splitIdx = -1;
 
-    const keyMarkers = [
-      /ĐÁP\s*ÁN\s*VÀ\s*GIẢI\s*THÍCH/i,
-      /ĐÁP\s*ÁN/i,
-      /ANSWER\s*KEY/i,
-      /KEY\s*ANSWERS/i
-    ];
-
-    let splitIndex = -1;
-    for (const marker of keyMarkers) {
-      const match = rawText.match(marker);
-      if (match && match.index !== undefined && match.index > splitIndex) {
-        splitIndex = match.index;
+    for (let i = 0; i < lines.length; i++) {
+      if (/^\s*(?:ĐÁP\s*ÁN|ANSWER\s*KEY|KEY\s*ANSWERS)/i.test(lines[i])) {
+        splitIdx = i;
+        break;
       }
     }
 
-    if (splitIndex !== -1) {
+    if (splitIdx !== -1) {
       return {
-        questionsText: rawText.substring(0, splitIndex),
-        answersText: rawText.substring(splitIndex)
+        questionsText: lines.slice(0, splitIdx).join('\n'),
+        answersText: lines.slice(splitIdx).join('\n')
       };
     }
 
     return { questionsText: rawText, answersText: '' };
   }
 
-  /** 3. Phân tích Bảng đáp án */
+  /** 3. Trích xuất Bảng đáp án */
   parseAnswerKeys(answersText) {
     const answerMap = new Map();
     if (!answersText) return answerMap;
 
-    const regex = /(?:Question|Câu)?\s*(\d+)[\.\:\-\s]+([A-D])\b/gi;
-    let match;
-
-    while ((match = regex.exec(answersText)) !== null) {
-      const qNum = parseInt(match[1], 10);
-      const answer = match[2].toUpperCase();
-
-      if (qNum >= 1 && qNum <= 40) answerMap.set(qNum + 100, answer);
-      if (qNum >= 1 && qNum <= 12) answerMap.set(qNum + 140, answer);
-      answerMap.set(qNum, answer);
-
-      if (match.index === regex.lastIndex) regex.lastIndex++;
+    const lines = answersText.split(/\r?\n/);
+    for (const line of lines) {
+      const matches = line.matchAll(/(?:Question|Câu)?\s*(\d+)[\.\:\-\s]+([A-D])\b/gi);
+      for (const match of matches) {
+        const qNum = parseInt(match[1], 10);
+        const ans = match[2].toUpperCase();
+        if (qNum >= 1 && qNum <= 40) answerMap.set(qNum + 100, ans);
+        if (qNum >= 1 && qNum <= 12) answerMap.set(qNum + 140, ans);
+        answerMap.set(qNum, ans);
+      }
     }
 
     return answerMap;
   }
 
-  /** 4. Chia theo Part (Part 5, 6, 7) */
+  /** 4. Chia Đề thi theo từng Part */
   splitByParts(text) {
     const parts = [];
     if (!text) return parts;
 
-    const partRegex = /(PART\s*[567]|PHẦN\s*[567]|BÀI\s*\d+)/gi;
-    const matches = [];
-    let match;
+    const lines = text.split(/\r?\n/);
+    let currentPart = 'PART_5';
+    let currentLines = [];
 
-    while ((match = partRegex.exec(text)) !== null) {
-      matches.push({ index: match.index, header: match[0] });
-      if (match.index === partRegex.lastIndex) partRegex.lastIndex++;
+    for (const line of lines) {
+      const partMatch = line.match(/^\s*(PART\s*[567]|PHẦN\s*[567])/i);
+      if (partMatch) {
+        if (currentLines.length > 0) {
+          parts.push({ partName: currentPart, content: currentLines.join('\n') });
+          currentLines = [];
+        }
+        const header = partMatch[1].toUpperCase();
+        if (header.includes('6')) currentPart = 'PART_6';
+        else if (header.includes('7')) currentPart = 'PART_7';
+        else currentPart = 'PART_5';
+      } else {
+        currentLines.push(line);
+      }
     }
 
-    if (matches.length === 0) {
-      parts.push({ partName: 'PART_5', content: text });
-      return parts;
-    }
-
-    for (let i = 0; i < matches.length; i++) {
-      const start = matches[i].index;
-      const end = (i + 1 < matches.length) ? matches[i + 1].index : text.length;
-      const content = text.substring(start, end);
-
-      let partName = 'PART_5';
-      const header = matches[i].header.toUpperCase();
-      if (header.includes('6')) partName = 'PART_6';
-      else if (header.includes('7')) partName = 'PART_7';
-      else if (header.includes('5')) partName = 'PART_5';
-
-      parts.push({ partName, content });
+    if (currentLines.length > 0) {
+      parts.push({ partName: currentPart, content: currentLines.join('\n') });
     }
 
     return parts;
   }
 
-  /** 5. Tách thành từng khối câu hỏi */
+  /** 5. Tách các khối câu hỏi (Line-by-Line Safe) */
   splitQuestionBlocks(partText) {
     const blocks = [];
     if (!partText) return blocks;
 
-    const qHeaderRegex = /(?:Question|Câu)\s*(\d+)[\:\.]?|(?:^|\n)\s*(\d+)[\.\:]\s+/gi;
-    const matches = [];
-    let match;
+    const lines = partText.split(/\r?\n/);
+    let currentNum = null;
+    let currentLines = [];
 
-    while ((match = qHeaderRegex.exec(partText)) !== null) {
-      const numStr = match[1] || match[2];
-      matches.push({
-        index: match.index,
-        num: parseInt(numStr, 10)
-      });
-      if (match.index === qHeaderRegex.lastIndex) qHeaderRegex.lastIndex++;
+    for (const line of lines) {
+      // Nhận diện dòng bắt đầu câu hỏi: "101.", "Question 1:", "Câu 1."
+      const qMatch = line.match(/^\s*(?:Question|Câu)?\s*(\d+)[\.\:]\s*(.*)/i);
+      if (qMatch && parseInt(qMatch[1], 10) > 0 && parseInt(qMatch[1], 10) <= 200) {
+        if (currentNum !== null && currentLines.length > 0) {
+          blocks.push({ localNum: currentNum, text: currentLines.join('\n').trim() });
+        }
+        currentNum = parseInt(qMatch[1], 10);
+        currentLines = [line];
+      } else if (currentNum !== null) {
+        currentLines.push(line);
+      }
     }
 
-    for (let i = 0; i < matches.length; i++) {
-      const start = matches[i].index;
-      const end = (i + 1 < matches.length) ? matches[i + 1].index : partText.length;
-      blocks.push({
-        localNum: matches[i].num,
-        text: partText.substring(start, end).trim()
-      });
+    if (currentNum !== null && currentLines.length > 0) {
+      blocks.push({ localNum: currentNum, text: currentLines.join('\n').trim() });
     }
 
     return blocks;
   }
 
-  /** 6. Trích xuất Thân câu hỏi & Lựa chọn A, B, C, D */
+  /** 6. Trích xuất Thân câu hỏi & Lựa chọn A, B, C, D siêu tốc */
   parseSingleQuestion(qText, localNum, partName) {
     let standardNum = localNum;
-    if (partName === 'PART_5' && localNum >= 1 && localNum <= 40) {
-      standardNum = 100 + localNum;
-    } else if (partName === 'PART_6' && localNum >= 1 && localNum <= 12) {
-      standardNum = 140 + localNum;
-    }
+    if (partName === 'PART_5' && localNum >= 1 && localNum <= 40) standardNum = 100 + localNum;
+    else if (partName === 'PART_6' && localNum >= 1 && localNum <= 12) standardNum = 140 + localNum;
 
     const choices = { A: '', B: '', C: '', D: '' };
-    let questionBody = qText;
+    if (!qText) return { questionNo: standardNum, originalNo: localNum, part: partName, stem: '', options: choices, answer: '' };
 
-    const firstOptIndex = qText.search(/A[\.\:\)]\s+/i);
-    if (firstOptIndex !== -1) {
-      questionBody = qText
-        .substring(0, firstOptIndex)
-        .replace(/(?:Question|Câu)\s*\d+[\:\.]?/i, '')
-        .trim();
+    const lines = qText.split(/\r?\n/);
+    let stemLines = [];
+    let optionLines = [];
+    let isParsingOptions = false;
 
-      const optionsText = qText.substring(firstOptIndex);
-      const optRegex = /([A-D])[\.\:\)]\s*([\s\S]*?)(?=(?:[A-D][\.\:\)]|$))/gi;
-      let match;
-
-      while ((match = optRegex.exec(optionsText)) !== null) {
-        const key = match[1].toUpperCase();
-        const val = match[2].trim().replace(/\s+/g, ' ');
-        choices[key] = val;
-        if (match.index === optRegex.lastIndex) optRegex.lastIndex++;
+    for (const line of lines) {
+      if (!isParsingOptions && /(?:^|\s)\(?A[\.\:\)]\s+/i.test(line)) {
+        isParsingOptions = true;
       }
+
+      if (isParsingOptions) {
+        optionLines.push(line);
+      } else {
+        stemLines.push(line);
+      }
+    }
+
+    // Clean câu hỏi
+    const rawStem = stemLines.join(' ').replace(/^\s*(?:Question|Câu)?\s*\d+[\.\:]?\s*/i, '').trim();
+
+    // Bóc tách A, B, C, D bằng Regex khớp nhanh
+    const fullOptionsText = optionLines.join(' ');
+    const optMatches = [...fullOptionsText.matchAll(/(?:\b|\s|\()([A-D])[\.\:\)]\s*([^\(A-D\.\:\)]+)/gi)];
+
+    if (optMatches.length > 0) {
+      for (const m of optMatches) {
+        const key = m[1].toUpperCase();
+        choices[key] = m[2].trim().replace(/\s+/g, ' ');
+      }
+    } else {
+      // Fallback: Tìm đơn giản từng chữ cái
+      ['A', 'B', 'C', 'D'].forEach((key) => {
+        const reg = new RegExp(`(?:${key}[\\.\\:\\)])\\s*([^A-D\\.\\:\\)]+)`, 'i');
+        const m = fullOptionsText.match(reg);
+        if (m) choices[key] = m[1].trim();
+      });
     }
 
     return {
       questionNo: standardNum,
       originalNo: localNum,
       part: partName,
-      stem: questionBody,
+      stem: rawStem || qText,
       options: choices,
       answer: ''
     };
   }
 
-  /** 7. Hàm xử lý chính (Bao bọc Try-Catch chống treo UI) */
+  /** 7. Hàm thực thi chính */
   buildBank(rawText, filename = '') {
     try {
       const { testId, testName } = this.extractTestInfo(rawText, filename);
@@ -197,22 +196,16 @@ class ToeicBankBuilder {
 
       for (const section of partSections) {
         const qBlocks = this.splitQuestionBlocks(section.content);
-        qBlocks.forEach((block) => {
+        for (const block of qBlocks) {
           const q = this.parseSingleQuestion(block.text, block.localNum, section.partName);
-          if (q && q.stem) {
-            questions.push(q);
-          }
-        });
+          if (q && q.stem) questions.push(q);
+        }
       }
 
       const answerMap = this.parseAnswerKeys(answersText);
-
       questions.forEach((q) => {
-        if (answerMap.has(q.questionNo)) {
-          q.answer = answerMap.get(q.questionNo);
-        } else if (answerMap.has(q.originalNo)) {
-          q.answer = answerMap.get(q.originalNo);
-        }
+        if (answerMap.has(q.questionNo)) q.answer = answerMap.get(q.questionNo);
+        else if (answerMap.has(q.originalNo)) q.answer = answerMap.get(q.originalNo);
       });
 
       return {
@@ -223,21 +216,12 @@ class ToeicBankBuilder {
         questions
       };
     } catch (error) {
-      console.error('Lỗi khi bóc tách ngân hàng câu hỏi:', error);
-      return {
-        success: false,
-        error: error.message,
-        totalQuestions: 0,
-        questions: []
-      };
+      console.error('Lỗi Build Bank:', error);
+      return { success: false, error: error.message, totalQuestions: 0, questions: [] };
     }
   }
 }
 
-// Khai báo an toàn trên Trình duyệt Web lẫn Node.js
-if (typeof window !== 'undefined') {
-  window.ToeicBankBuilder = ToeicBankBuilder;
-}
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = ToeicBankBuilder;
-}
+// Export tương thích Trình duyệt Web và Node.js
+if (typeof window !== 'undefined') window.ToeicBankBuilder = ToeicBankBuilder;
+if (typeof module !== 'undefined' && module.exports) module.exports = ToeicBankBuilder;
