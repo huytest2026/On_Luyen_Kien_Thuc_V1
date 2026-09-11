@@ -4,7 +4,7 @@
 /* V45.1.1: use the PDF.js global already loaded by index.html.
  * Do NOT use ES-module CDN import here: the host page is Apps Script HTML and
  * already loads pdf.js 3.11.174 before this file. */
-const pdfjsLib = window.pdfjsLib;
+const pdfjsLib = window.pdfjsLib;buildColumnRegions
 if (!pdfjsLib) {
   console.error('[TOEIC Bank Builder] PDF.js is not loaded.');
 }
@@ -29,11 +29,13 @@ function actualFromText(t){
 function qNumbers(t){
  if(isAnswerKeyPage(t))return [];
  const a=[];
- // Do not require a newline: PDF text extraction from 2-column pages can put
- // question 101 and 105 on the same extracted line. We therefore detect the
- // question number by its numeric range + punctuation/space + sentence start.
- const re=/(?:^|[\s|])((?:10[1-9]|1[1-9]\d|19\d|200))\s*[.)\-:]?\s+(?=[A-Za-z(“"'])/g;
- let m;while((m=re.exec(String(t||''))))a.push(Number(m[1]));
+ const re=/(?:^|[\s|])((?:10[1-9]|1[1-9]\d|19\d|200)|(?:[1-9]|[1-3]\d|40))\s*[.)\-:]?\s+(?=[A-Za-z(“"'])/g;
+ let m;
+ while((m=re.exec(String(t||'')))){
+   let n = Number(m[1]);
+   if(n >= 1 && n <= 40) n += 100; // Tự động quy đổi 1..40 -> 101..140
+   a.push(n);
+ }
  return [...new Set(a)];
 }
 function questionRangeForPart(part){return part==='Part 5'?[101,140]:part==='Part 6'?[141,152]:[153,200]}
@@ -158,12 +160,20 @@ function isAnswerKeyPage(text){
  return /(?:101|102|103|104|105|106|107|108|109|110)\s*[ABCD](?:\s+(?:10[1-9]|1[1-9]\d|19\d|200)\s*[ABCD]){4,}/i.test(compact);
 }
 function splitQuestionChunks(text){
- // Only recognize a question number at the beginning of a PDF text line.
- // Numbers inside an option such as "recently 120." must never start a new question.
  const src=String(text||'').replace(/\r/g,'');
- const re=/(?:^|\n)\s*((?:10[1-9]|1[1-3]\d|140|14[1-9]|15\d|16\d|17\d|18\d|19\d|200))\s*[.)\-:]?\s+(?=[A-Za-z(“"'])/g;
- const hits=[];let m;while((m=re.exec(src)))hits.push({n:Number(m[1]),start:m.index+m[0].length});
- const out=[];for(let i=0;i<hits.length;i++){const end=i+1<hits.length?hits[i+1].start:src.length;out.push({n:hits[i].n,text:clean(src.slice(hits[i].start,end))});}
+ const re=/(?:^|\n)\s*((?:10[1-9]|1[1-3]\d|140|14[1-9]|15\d|16\d|17\d|18\d|19\d|200)|(?:[1-9]|[1-3]\d|40))\s*[.)\-:]?\s+(?=[A-Za-z(“"'])/g;
+ const hits=[];
+ let m;
+ while((m=re.exec(src))){
+   let n = Number(m[1]);
+   if(n >= 1 && n <= 40) n += 100;
+   hits.push({n, start:m.index+m[0].length});
+ }
+ const out=[];
+ for(let i=0;i<hits.length;i++){
+   const end=i+1<hits.length?hits[i+1].start:src.length;
+   out.push({n:hits[i].n, text:clean(src.slice(hits[i].start,end))});
+ }
  return out.filter(x=>x.n>=101&&x.n<=200);
 }
 function parseOptions(chunk){
@@ -242,19 +252,15 @@ function buildColumnRegions(p){
      return {y:r.y,x:Math.min(...r.items.map(i=>i.x)),items:r.items,text:clean(r.items.map(i=>i.text).join(' '))};
    }).filter(r=>r.text);
  };
- const qRe=/^(10[1-9]|1[0-9]{2}|200)\s*[.)\-:]?(?:\s|$)/;
+ const qRe=/^(?:(10[1-9]|1[0-9]{2}|200)|([1-9]|[1-3]\d|40))\s*[.)\-:]?(?:\s|$)/;
  for(let ci=0;ci<cols.length;ci++){
    const col=cols[ci].slice();
    const lines=makeLines(col);
-   // Detect question anchors from the COMPLETE line, not from one raw PDF item.
-   // Some PDFs emit "147." and "(A) maintaining" as separate items. The old
-   // item-only detector missed 147/148/149, causing Q146 to absorb the rest
-   // of the column. Line-level detection fixes that class of corruption.
    const minX=Math.min(...col.map(x=>x.x));
    const anchors=[];
    for(const line of lines){
      const m=line.text.match(qRe);if(!m)continue;
-     const n=Number(m[1]);
+     let n = m[1] ? Number(m[1]) : (Number(m[2]) + 100);
      if(n<101||n>200)continue;
      if(line.x<=minX+45)anchors.push({n,y:line.y,x:line.x});
    }
