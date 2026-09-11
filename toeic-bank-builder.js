@@ -29,12 +29,12 @@ function actualFromText(t){
 function qNumbers(t){
   if(isAnswerKeyPage(t)) return [];
   const src = String(t || '');
-  // Kiểm tra nếu bài đã có dạng 101-140 chuẩn thì KHÔNG quét 1-40 nữa
-  const hasStandard101 = /(?:^|[\s|])10[1-5]\s*[.)\-:]?\s+[A-Za-z(“"']/.test(src);
+  // Kiểm tra trên toàn bộ dải câu chuẩn 101-200
+  const hasStandard101 = /(?:^|[\s|])(?:10[1-9]|1[1-9]\d|200)\s*[.)\-:]?\s+[A-Za-z(“"']/.test(src);
 
   const re = hasStandard101
-    ? /(?:^|[\s|])(10[1-9]|1[1-9]\d|19\d|200)\s*[.)\-:]?\s+(?=[A-Za-z(“"'])/g
-    : /(?:^|[\s|])((?:10[1-9]|1[1-9]\d|19\d|200)|(?:[1-9]|[1-3]\d|40))\s*[.)\-:]?\s+(?=[A-Za-z(“"'])/g;
+    ? /(?:^|[\s|])(10[1-9]|1[1-9]\d|200)\s*[.)\-:]?\s+(?=[A-Za-z(“"'])/g
+    : /(?:^|[\s|])((?:10[1-9]|1[1-9]\d|200)|(?:[1-9]|[1-3]\d|40))\s*[.)\-:]?\s+(?=[A-Za-z(“"'])/g;
 
   const a = [];
   let m;
@@ -48,10 +48,11 @@ function qNumbers(t){
 
 function splitQuestionChunks(text){
   const src = String(text || '').replace(/\r/g, '');
-  const hasStandard101 = /(?:^|\n)\s*10[1-5]\s*[.)\-:]?\s+[A-Za-z(“"']/.test(src);
+  // Kiểm tra trên toàn bộ dải câu chuẩn 101-200
+  const hasStandard101 = /(?:^|\n)\s*(?:10[1-9]|1[1-9]\d|200)\s*[.)\-:]?\s+[A-Za-z(“"']/.test(src);
 
   const re = hasStandard101
-    ? /(?:^|\n)\s*(10[1-9]|1[1-9]\d|19\d|200)\s*[.)\-:]?\s+(?=[A-Za-z(“"'])/g
+    ? /(?:^|\n)\s*(10[1-9]|1[1-9]\d|200)\s*[.)\-:]?\s+(?=[A-Za-z(“"'])/g
     : /(?:^|\n)\s*((?:10[1-9]|1[1-3]\d|140|14[1-9]|15\d|16\d|17\d|18\d|19\d|200)|(?:[1-9]|[1-3]\d|40))\s*[.)\-:]?\s+(?=[A-Za-z(“"'])/g;
 
   const hits = [];
@@ -75,7 +76,8 @@ function buildColumnRegions(p){
   if (!items.length) return [];
 
   const pageText = items.map(i => i.text).join(' ');
-  const hasStandard101 = /(?:^|\s)10[1-5]\s*[.)\-:]?/.test(pageText);
+  // Kiểm tra trên toàn bộ dải câu chuẩn 101-200
+  const hasStandard101 = /(?:^|\s)(?:10[1-9]|1[1-9]\d|200)\s*[.)\-:]?/.test(pageText);
 
   const mid = Number(p.mid || p.width / 2 || 300);
   const cols = (p.columns === 2) ? [items.filter(i => i.x < mid), items.filter(i => i.x >= mid)] : [items];
