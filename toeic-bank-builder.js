@@ -27,114 +27,253 @@ function actualFromText(t){
  return m?'Actual Test '+String(Number(m[1])).padStart(2,'0'):'';
 }
 function qNumbers(t){
-  if(isAnswerKeyPage(t)) return [];
-  const src = String(t || '');
-  // Kiểm tra trên toàn bộ dải câu chuẩn 101-200
-  const hasStandard101 = /(?:^|[\s|])(?:10[1-9]|1[1-9]\d|200)\s*[.)\-:]?\s+[A-Za-z(“"']/.test(src);
-
-  const re = hasStandard101
-    ? /(?:^|[\s|])(10[1-9]|1[1-9]\d|200)\s*[.)\-:]?\s+(?=[A-Za-z(“"'])/g
-    : /(?:^|[\s|])((?:10[1-9]|1[1-9]\d|200)|(?:[1-9]|[1-3]\d|40))\s*[.)\-:]?\s+(?=[A-Za-z(“"'])/g;
-
-  const a = [];
-  let m;
-  while ((m = re.exec(src))) {
-    let n = Number(m[1]);
-    if (!hasStandard101 && n >= 1 && n <= 40) n += 100;
-    a.push(n);
-  }
-  return [...new Set(a)];
+ if(isAnswerKeyPage(t))return [];
+ const a=[];
+ const re=/(?:^|[\s|])((?:10[1-9]|1[1-9]\d|19\d|200)|(?:[1-9]|[1-3]\d|40))\s*[.)\-:]?\s+(?=[A-Za-z(“"'])/g;
+ let m;
+ while((m=re.exec(String(t||'')))){
+   let n = Number(m[1]);
+   if(n >= 1 && n <= 40) n += 100; // Tự động quy đổi 1..40 -> 101..140
+   a.push(n);
+ }
+ return [...new Set(a)];
 }
+function questionRangeForPart(part){return part==='Part 5'?[101,140]:part==='Part 6'?[141,152]:[153,200]}
+function inferPart(n){return n<=140?'Part 5':n<=152?'Part 6':n>=153?'Part 7':''}
+function actualByQuestionResets(records){
+ let testNo=0,last=0;for(const r of records){if(r.n===101&&last>0)testNo++;if(!testNo)testNo=1; if(r.n<last && r.n!==101)testNo++;r.test='Actual Test '+String(testNo).padStart(2,'0');last=r.n}return records;
+}
+async function openPdf(file){return pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise}
+async function pageLayout(doc,n){
+ const p=await doc.getPage(n),tc=await p.getTextContent(),vp=p.getViewport({scale:1});
+ const items=[];
+ for(const it of tc.items){
+   const text=clean(it.str);if(!text)continue;
+   items.push({text,x:Number(it.transform?.[4]||0),y:Number(it.transform?.[5]||0),w:Number(it.width||0),h:Number(it.height||0)});
+ }
+ if(!items.length)return {page:n,text:'',lines:[],items:[],width:vp.width,height:vp.height,columns:1};
+ // Parser V2: keep raw coordinates. The question parser below uses question-number
+ // anchors and vertical regions, rather than concatenating the entire PDF page.
+ const mid=vp.width/2;
+ const left=items.filter(i=>i.x<mid),right=items.filter(i=>i.x>=mid);
+ const two=left.length>=8&&right.length>=8;
+ const makeLines=arr=>{
+   const ys=[];
+   for(const it of arr){let row=ys.find(r=>Math.abs(r.y-it.y)<=3);if(!row){row={y:it.y,items:[]};ys.push(row)}row.items.push(it)}
+   return ys.sort((a,b)=>b.y-a.y).map(r=>{r.items.sort((a,b)=>a.x-b.x);return {x:Math.min(...r.items.map(i=>i.x)),y:r.y,text:clean(r.items.map(i=>i.text).join(' '))}}).filter(r=>r.text);
+ };
+ const cols=two?[left,right]:[items];
+ const lines=cols.flatMap(makeLines);
+ return {page:n,text:lines.map(l=>l.text).join('\n'),lines,items,width:vp.width,height:vp.height,columns:two?2:1,mid};
+}
+async function pageText(doc,n){const x=await pageLayout(doc,n);return x.text}
 
+// V45.1.5: Answer Key pages can contain 5 answer columns on one physical row.
+// The normal pageLayout() intentionally splits a page at the midpoint for
+// question parsing; on a 5-column Answer Key this separates the 3rd pair
+// (103/108/113/...) from its letter. Read Answer Key pages as one full-width
+// coordinate space so every question number stays adjacent to its answer.
+async function answerKeyPageText(doc,n){
+ const p=await doc.getPage(n),tc=await p.getTextContent();
+ const items=[];
+ for(const it of tc.items){
+   const text=clean(it.str);if(!text)continue;
+   items.push({text,x:Number(it.transform?.[4]||0),y:Number(it.transform?.[5]||0)});
+ }
+ if(!items.length)return '';
+ const ys=[];
+ for(const it of items){
+   let row=ys.find(r=>Math.abs(r.y-it.y)<=3);
+   if(!row){row={y:it.y,items:[]};ys.push(row)}
+   row.items.push(it);
+ }
+ ys.sort((a,b)=>b.y-a.y);
+ return ys.map(r=>{
+   r.items.sort((a,b)=>a.x-b.x);
+   return clean(r.items.map(i=>i.text).join(' '));
+ }).filter(Boolean).join('\n');
+}
+async function renderPage(doc,n,scale=1){const p=await doc.getPage(n),vp=p.getViewport({scale}),c=document.createElement('canvas');c.width=Math.ceil(vp.width);c.height=Math.ceil(vp.height);await p.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;return {canvas:c,page:p}}
+async function ocrCanvas(canvas){
+ if(!worker)worker=await Tesseract.createWorker('eng',1,{logger:m=>{if(m.status&&m.progress!=null)status('🧠 '+m.status+' '+Math.round(m.progress*100)+'%')}});
+ const r=await worker.recognize(canvas);return {text:clean(r.data.text),tsv:r.data.tsv||''};
+}
+function reset(){pageInfo=[];bank=[];groups=[];answerFindings=[];sourcePdfs.clear();sourceFiles=[];passageBlobs.clear();editingIndex=-1;for(const id of ['btnOCR','btnAnswers','btnExport','btnExportOfficial'])if($(id))$(id).disabled=true;$('bankRows').innerHTML='';$('answerRows').innerHTML='';$('tests').innerHTML='';$('summary').textContent='Chưa có dữ liệu.';$('answerStatus').textContent='Chưa nhận diện đáp án.';$('issues').textContent='Chưa phân tích.';$('editor').classList.add('hidden');$('editorEmpty').classList.remove('hidden');}
+function detectPartPages(info){const t=info.text;return /PART\s*5\b/i.test(t)?'Part 5':/PART\s*6\b/i.test(t)?'Part 6':/PART\s*7\b/i.test(t)?'Part 7':''}
+function detectTestsFromPages(pages){
+ // Two complementary anchors are used:
+ // 1) explicit Actual Test/divider markers when present;
+ // 2) fallback: question-number reset 101 => next test.
+ let current='',nextAuto=1,lastAnswerTest=0,afterAnswerPage=-1,boundarySet=false;const out=[];
+ for(let i=0;i<pages.length;i++){
+  const p=pages[i],raw=String(p.text||''),compact=raw.replace(/[–—]/g,'-').replace(/\s+/g,' ');
+  const ans=compact.match(/Answers[._\s-]*Actual\s*Test\s*0?([0-9]{1,2})/i);
+  const explicit=actualFromText(raw);
+  const marker=compact.match(/(?:^|\s)(1[0-5]|[1-9])\s+Part\s*[5S]\s*Part\s*[6G]\b/i)||compact.match(/Part\s*[5S]\s*Part\s*[6G]\s*(1[0-5]|[1-9])(?:\s|$)/i);
+  const genericDivider=/\bPart\s*[5S]\s*Part\s*[6G]\b/i.test(compact);
+  if(ans){current='Actual Test '+String(Number(ans[1])).padStart(2,'0');lastAnswerTest=Number(ans[1]);afterAnswerPage=i;boundarySet=false;p.isAnswerPage=true;p.actual=current;out.push(p);continue}
+  if(marker){current='Actual Test '+String(Number(marker[1])).padStart(2,'0');lastAnswerTest=Number(marker[1]);boundarySet=true;}
+  else if(genericDivider && current && i>afterAnswerPage && !/READING\s*TEST/i.test(compact)){
+   // Divider/footer without a visible number. If it follows an answer page, it belongs to the next test.
+   current='Actual Test '+String(lastAnswerTest+1).padStart(2,'0');lastAnswerTest++;boundarySet=true;
+  }
+  // If the next test has no numbered divider, its first Reading Test page is a reliable boundary after an answer page.
+  if(/READING\s*TEST/i.test(compact) && afterAnswerPage>=0 && i>afterAnswerPage && !/Answers[._\s-]*Actual/i.test(compact)){
+   const candidate=lastAnswerTest+1;
+   if(!marker && !boundarySet && candidate<=15){current='Actual Test '+String(candidate).padStart(2,'0');lastAnswerTest=candidate;boundarySet=true;}
+  }
+  if(explicit)current=explicit;
+  if(current)p.actual=current;
+  out.push(p);
+ }
+ return out;
+}
+function inferTestsFromQuestionPages(pages,fileName='',fallbackTestNo=1){
+ // Many real TOEIC PDFs (including "De 1- TOEIC.pdf") do not print "Actual Test".
+ // In those files each test starts again at question 101. Assign the test to the
+ // PAGE before question parsing so parseQuestionsFromPages() can actually keep it.
+ let testNo=0,seenAny=false,lastMax=0;
+ const fileMatch=String(fileName||'').match(/(?:De|Test|TEST)\s*[-_ ]*0?(\d{1,2})/i);
+ const fileNo=fileMatch?Number(fileMatch[1]):Number(fallbackTestNo)||1;
+ for(const p of pages){
+  if(p.isAnswerPage||/Answers[._\s-]*Actual\s*Test/i.test(String(p.text||''))||isAnswerKeyPage(p.text||''))continue;
+  const nums=qNumbers(p.text||'');
+  const has101=nums.includes(101);
+  const meaningful=nums.some(n=>n>=101&&n<=200);
+  if(has101 && seenAny){testNo++;}
+  if(has101 && !seenAny){testNo=fileNo||1;}
+  if(meaningful && !testNo){testNo=fileNo||1;}
+  if(meaningful){seenAny=true;lastMax=Math.max(lastMax,...nums);p.actual='Actual Test '+String(testNo||1).padStart(2,'0');}
+ }
+ // If the source has questions but no visible 101 on a page (rare split layout),
+ // propagate the current test number forward to pages containing questions.
+ if(seenAny){let cur=testNo||fileNo||1;for(const p of pages){if(p.actual)cur=Number(String(p.actual).slice(-2))||cur;else if(qNumbers(p.text||'').some(n=>n>=101&&n<=200))p.actual='Actual Test '+String(cur).padStart(2,'0');}}
+ return pages;
+}
+function isAnswerKeyPage(text){
+ const s=String(text||'').replace(/\r/g,'');
+ const compact=s.replace(/\s+/g,' ').trim();
+ // Do not let answer-key rows such as "101 B 102 B 103 A..." become questions.
+ const pairs=[...compact.matchAll(/(?:^|\s)(10[1-9]|1[1-9]\d|19\d|200)\s*[.)\-:]?\s*\(?([ABCD])\)?(?=\s|$)/gi)];
+ const unique=new Set(pairs.map(m=>Number(m[1])));
+ if(unique.size>=6)return true;
+ return /(?:101|102|103|104|105|106|107|108|109|110)\s*[ABCD](?:\s+(?:10[1-9]|1[1-9]\d|19\d|200)\s*[ABCD]){4,}/i.test(compact);
+}
 function splitQuestionChunks(text){
-  const src = String(text || '').replace(/\r/g, '');
-  // Kiểm tra trên toàn bộ dải câu chuẩn 101-200
-  const hasStandard101 = /(?:^|\n)\s*(?:10[1-9]|1[1-9]\d|200)\s*[.)\-:]?\s+[A-Za-z(“"']/.test(src);
-
-  const re = hasStandard101
-    ? /(?:^|\n)\s*(10[1-9]|1[1-9]\d|200)\s*[.)\-:]?\s+(?=[A-Za-z(“"'])/g
-    : /(?:^|\n)\s*((?:10[1-9]|1[1-3]\d|140|14[1-9]|15\d|16\d|17\d|18\d|19\d|200)|(?:[1-9]|[1-3]\d|40))\s*[.)\-:]?\s+(?=[A-Za-z(“"'])/g;
-
-  const hits = [];
-  let m;
-  while ((m = re.exec(src))) {
-    let n = Number(m[1]);
-    if (!hasStandard101 && n >= 1 && n <= 40) n += 100;
-    hits.push({ n, start: m.index + m[0].length });
-  }
-
-  const out = [];
-  for (let i = 0; i < hits.length; i++) {
-    const end = i + 1 < hits.length ? hits[i + 1].start : src.length;
-    out.push({ n: hits[i].n, text: clean(src.slice(hits[i].start, end)) });
-  }
-  return out.filter(x => x.n >= 101 && x.n <= 200);
+ const src=String(text||'').replace(/\r/g,'');
+ const re=/(?:^|\n)\s*((?:10[1-9]|1[1-3]\d|140|14[1-9]|15\d|16\d|17\d|18\d|19\d|200)|(?:[1-9]|[1-3]\d|40))\s*[.)\-:]?\s+(?=[A-Za-z(“"'])/g;
+ const hits=[];
+ let m;
+ while((m=re.exec(src))){
+   let n = Number(m[1]);
+   if(n >= 1 && n <= 40) n += 100;
+   hits.push({n, start:m.index+m[0].length});
+ }
+ const out=[];
+ for(let i=0;i<hits.length;i++){
+   const end=i+1<hits.length?hits[i+1].start:src.length;
+   out.push({n:hits[i].n, text:clean(src.slice(hits[i].start,end))});
+ }
+ return out.filter(x=>x.n>=101&&x.n<=200);
+}
+function parseOptions(chunk){
+ // Option markers must be at the beginning of a line. Otherwise Q109,
+ // whose stem starts with "A press conference...", is mistaken for option A.
+ const raw=String(chunk||'').replace(/\r/g,'');
+ const lines=raw.split('\n').map(x=>clean(x)).filter(Boolean);
+ const re=/^\s*(?:\(([ABCD])\)|([ABCD])[.)\-:])\s+/i;
+ const hits=[];for(let i=0;i<lines.length;i++){const m=lines[i].match(re);if(m)hits.push({i,letter:(m[1]||m[2]).toUpperCase()});}
+ // Some PDFs extract a stem beginning with bare "A " (e.g. "109. A press conference...")
+ // before the real (A)-(D) options. Do not mistake that stem for option A.
+ let stemPrefix='';
+ if(lines[0]&&/^A\s+[A-Za-z]/.test(lines[0])&&!/^A[.)\-:]\s+/.test(lines[0])&&hits.some(h=>h.letter==='B')&&hits.some(h=>h.letter==='D')){
+   stemPrefix=lines.shift();
+   hits.length=0;for(let i=0;i<lines.length;i++){const m=lines[i].match(re);if(m)hits.push({i,letter:(m[1]||m[2]).toUpperCase()});}
+ }
+ const o={A:'',B:'',C:'',D:''};
+ if(!hits.length)return {q:clean(lines.join(' ')),...o};
+ const q=clean([stemPrefix,...lines.slice(0,hits[0].i)].filter(Boolean).join(' '));
+ for(let i=0;i<hits.length;i++){
+   const end=i+1<hits.length?hits[i+1].i:lines.length;
+   const key=hits[i].letter;
+   const first=lines[hits[i].i].replace(re,'');
+   const rest=lines.slice(hits[i].i+1,end);
+   o[key]=clean([first,...rest].join(' ')).replace(/^[.)\-:]\s*/,'').trim();
+ }
+ return {q,...o};
+}
+function parsePart6QuestionsFromPage(p){
+ const lines=(p.lines||[]).slice().sort((a,b)=>b.y-a.y).map(x=>clean(x.text)).filter(Boolean);
+ const markerRe=/^\s*(141|142|143|144|145|146|147|148|149|150|151|152)\s*[.)\-:]?\s*\((A)\)\s*(.*)$/i;
+ const hits=[];
+ for(let i=0;i<lines.length;i++){const m=lines[i].match(markerRe);if(m)hits.push({i,n:Number(m[1]),a:m[3]||''});}
+ if(!hits.length)return [];
+ const rows=[];
+ for(let k=0;k<hits.length;k++){
+   const h=hits[k], prevEnd=k?hits[k-1].i+4:0;
+   const pre=lines.slice(prevEnd,h.i).filter(x=>!/^Copyright|www\.Hackers\.co\.kr/i.test(x));
+   const blankAt=pre.reduce((idx,x,i)=>/[-_]{2,}/.test(x)?i:idx,-1);
+   let qLines=[];
+   if(blankAt>=0){
+     let s0=blankAt;
+     // Walk backward to the beginning of the current sentence/paragraph.
+     // This preserves Part 6 stems that wrap over 2–4 PDF lines.
+     while(s0>0 && !/[.!?]$/.test(pre[s0-1]))s0--;
+     qLines=pre.slice(s0,blankAt+1);
+   } else qLines=pre.slice(-4);
+   const q=clean(qLines.join(' '));
+   const opts={A:clean(h.a),B:'',C:'',D:''};
+   for(let j=h.i+1;j<Math.min(lines.length,h.i+4);j++){
+     const m=lines[j].match(/^\s*\(([ABCD])\)\s*(.*)$/i); if(m)opts[m[1].toUpperCase()]=clean(m[2]);
+   }
+   rows.push({n:h.n,q,A:opts.A,B:opts.B,C:opts.C,D:opts.D,page:p.page,actual:p.actual,sourceFile:p.sourceFile,doc:p.doc});
+ }
+ return rows;
 }
 
+function questionNumberFromItem(text){
+ const m=String(text||'').trim().match(/^(10[1-9]|1[0-9]{2}|200)[.)\-:]?(?:\s+.*)?$/);
+ return m?Number(m[1]):0;
+}
 function buildColumnRegions(p){
-  const items = Array.isArray(p.items) ? p.items : [];
-  if (!items.length) return [];
-
-  const pageText = items.map(i => i.text).join(' ');
-  // Kiểm tra trên toàn bộ dải câu chuẩn 101-200
-  const hasStandard101 = /(?:^|\s)(?:10[1-9]|1[1-9]\d|200)\s*[.)\-:]?/.test(pageText);
-
-  const mid = Number(p.mid || p.width / 2 || 300);
-  const cols = (p.columns === 2) ? [items.filter(i => i.x < mid), items.filter(i => i.x >= mid)] : [items];
-  const regions = [];
-
-  const makeLines = arr => {
-    const ys = [];
-    for (const it of arr) {
-      let row = ys.find(r => Math.abs(r.y - it.y) <= 3);
-      if (!row) { row = { y: it.y, items: [] }; ys.push(row); }
-      row.items.push(it);
-    }
-    return ys.sort((a, b) => b.y - a.y).map(r => {
-      r.items.sort((a, b) => a.x - b.x);
-      return { y: r.y, x: Math.min(...r.items.map(i => i.x)), items: r.items, text: clean(r.items.map(i => i.text).join(' ')) };
-    }).filter(r => r.text);
-  };
-
-  const qReStandard = /^(10[1-9]|1[0-9]{2}|200)\s*[.)\-:]?(?:\s|$)/;
-  const qReNonStandard = /^(?:(10[1-9]|1[0-9]{2}|200)|([1-9]|[1-3]\d|40))\s*[.)\-:]?(?:\s|$)/;
-
-  for (let ci = 0; ci < cols.length; ci++) {
-    const col = cols[ci].slice();
-    const lines = makeLines(col);
-    const minX = Math.min(...col.map(x => x.x));
-    const anchors = [];
-
-    for (const line of lines) {
-      if (hasStandard101) {
-        const m = line.text.match(qReStandard);
-        if (!m) continue;
-        let n = Number(m[1]);
-        if (line.x <= minX + 45) anchors.push({ n, y: line.y, x: line.x });
-      } else {
-        const m = line.text.match(qReNonStandard);
-        if (!m) continue;
-        let n = m[1] ? Number(m[1]) : (Number(m[2]) + 100);
-        if (n < 101 || n > 200) continue;
-        if (line.x <= minX + 45) anchors.push({ n, y: line.y, x: line.x });
-      }
-    }
-
-    const uniq = [];
-    const seen = new Set();
-    for (const a of anchors) {
-      const k = a.n + '|' + Math.round(a.y);
-      if (!seen.has(k)) { seen.add(k); uniq.push(a); }
-    }
-
-    for (let i = 0; i < uniq.length; i++) {
-      const a = uniq[i], next = uniq[i + 1];
-      const yTop = a.y + 10, yBottom = next ? next.y + 2 : -Infinity;
-      const regionItems = col.filter(it => it.y <= yTop && it.y > yBottom);
-      regions.push({ n: a.n, column: ci, y: a.y, x: a.x, items: regionItems });
-    }
-  }
-  return regions.sort((a, b) => b.y - a.y || a.column - b.column);
+ const items=Array.isArray(p.items)?p.items:[];if(!items.length)return [];
+ const mid=Number(p.mid||p.width/2||300);
+ const cols=(p.columns===2)?[items.filter(i=>i.x<mid),items.filter(i=>i.x>=mid)]:[items];
+ const regions=[];
+ const makeLines=arr=>{
+   const ys=[];
+   for(const it of arr){
+     let row=ys.find(r=>Math.abs(r.y-it.y)<=3);
+     if(!row){row={y:it.y,items:[]};ys.push(row)}
+     row.items.push(it);
+   }
+   return ys.sort((a,b)=>b.y-a.y).map(r=>{
+     r.items.sort((a,b)=>a.x-b.x);
+     return {y:r.y,x:Math.min(...r.items.map(i=>i.x)),items:r.items,text:clean(r.items.map(i=>i.text).join(' '))};
+   }).filter(r=>r.text);
+ };
+ const qRe=/^(?:(10[1-9]|1[0-9]{2}|200)|([1-9]|[1-3]\d|40))\s*[.)\-:]?(?:\s|$)/;
+ for(let ci=0;ci<cols.length;ci++){
+   const col=cols[ci].slice();
+   const lines=makeLines(col);
+   const minX=Math.min(...col.map(x=>x.x));
+   const anchors=[];
+   for(const line of lines){
+     const m=line.text.match(qRe);if(!m)continue;
+     let n = m[1] ? Number(m[1]) : (Number(m[2]) + 100);
+     if(n<101||n>200)continue;
+     if(line.x<=minX+45)anchors.push({n,y:line.y,x:line.x});
+   }
+   const uniq=[];const seen=new Set();
+   for(const a of anchors){const k=a.n+'|'+Math.round(a.y);if(!seen.has(k)){seen.add(k);uniq.push(a)}}
+   for(let i=0;i<uniq.length;i++){
+     const a=uniq[i],next=uniq[i+1];
+     const yTop=a.y+10,yBottom=next?next.y+2:-Infinity;
+     const regionItems=col.filter(it=>it.y<=yTop&&it.y>yBottom);
+     regions.push({n:a.n,column:ci,y:a.y,x:a.x,items:regionItems});
+   }
+ }
+ return regions.sort((a,b)=>b.y-a.y||a.column-b.column);
 }
 function linesFromRegionItems(items){
  const ys=[];
