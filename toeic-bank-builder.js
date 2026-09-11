@@ -26,21 +26,21 @@ function actualFromText(t){
  let m=s.match(/Actual\s*Test\s*0?([0-9]{1,2})\b/i)||s.match(/Actu[a-z0-9|]{0,3}\s*Test\s*[O0]?([0-9]{1,2})\b/i);
  return m?'Actual Test '+String(Number(m[1])).padStart(2,'0'):'';
 }
-
 function qNumbers(t){
   if(isAnswerKeyPage(t)) return [];
   const src = String(t || '');
-  const isStd = hasStandardNumbers(src);
+  // Kiểm tra trên toàn bộ dải câu chuẩn 101-200
+  const hasStandard101 = /(?:^|[\s|])(?:10[1-9]|1[1-9]\d|200)\s*[.)\-:]?\s+[A-Za-z(“"']/.test(src);
 
-  const re = isStd
-    ? /(?:^|[\s|])(10[1-9]|1[1-9]\d|200)\s*[.)\-:]?\s+/g
-    : /(?:^|[\s|])((?:10[1-9]|1[1-9]\d|200)|(?:[1-9]|[1-3]\d|40))\s*[.)\-:]?\s+/g;
+  const re = hasStandard101
+    ? /(?:^|[\s|])(10[1-9]|1[1-9]\d|200)\s*[.)\-:]?\s+(?=[A-Za-z(“"'])/g
+    : /(?:^|[\s|])((?:10[1-9]|1[1-9]\d|200)|(?:[1-9]|[1-3]\d|40))\s*[.)\-:]?\s+(?=[A-Za-z(“"'])/g;
 
   const a = [];
   let m;
   while ((m = re.exec(src))) {
     let n = Number(m[1]);
-    if (!isStd && n >= 1 && n <= 40) n += 100;
+    if (!hasStandard101 && n >= 1 && n <= 40) n += 100;
     a.push(n);
   }
   return [...new Set(a)];
@@ -48,17 +48,18 @@ function qNumbers(t){
 
 function splitQuestionChunks(text){
   const src = String(text || '').replace(/\r/g, '');
-  const isStd = hasStandardNumbers(src);
+  // Kiểm tra trên toàn bộ dải câu chuẩn 101-200
+  const hasStandard101 = /(?:^|\n)\s*(?:10[1-9]|1[1-9]\d|200)\s*[.)\-:]?\s+[A-Za-z(“"']/.test(src);
 
-  const re = isStd
-    ? /(?:^|\n)\s*(10[1-9]|1[1-9]\d|200)\s*[.)\-:]?\s+/g
-    : /(?:^|\n)\s*((?:10[1-9]|1[1-3]\d|140|14[1-9]|15\d|16\d|17\d|18\d|19\d|200)|(?:[1-9]|[1-3]\d|40))\s*[.)\-:]?\s+/g;
+  const re = hasStandard101
+    ? /(?:^|\n)\s*(10[1-9]|1[1-9]\d|200)\s*[.)\-:]?\s+(?=[A-Za-z(“"'])/g
+    : /(?:^|\n)\s*((?:10[1-9]|1[1-3]\d|140|14[1-9]|15\d|16\d|17\d|18\d|19\d|200)|(?:[1-9]|[1-3]\d|40))\s*[.)\-:]?\s+(?=[A-Za-z(“"'])/g;
 
   const hits = [];
   let m;
   while ((m = re.exec(src))) {
     let n = Number(m[1]);
-    if (!isStd && n >= 1 && n <= 40) n += 100;
+    if (!hasStandard101 && n >= 1 && n <= 40) n += 100;
     hits.push({ n, start: m.index + m[0].length });
   }
 
@@ -75,7 +76,8 @@ function buildColumnRegions(p){
   if (!items.length) return [];
 
   const pageText = items.map(i => i.text).join(' ');
-  const isStd = hasStandardNumbers(pageText);
+  // Kiểm tra trên toàn bộ dải câu chuẩn 101-200
+  const hasStandard101 = /(?:^|\s)(?:10[1-9]|1[1-9]\d|200)\s*[.)\-:]?/.test(pageText);
 
   const mid = Number(p.mid || p.width / 2 || 300);
   const cols = (p.columns === 2) ? [items.filter(i => i.x < mid), items.filter(i => i.x >= mid)] : [items];
@@ -104,7 +106,7 @@ function buildColumnRegions(p){
     const anchors = [];
 
     for (const line of lines) {
-      if (isStd) {
+      if (hasStandard101) {
         const m = line.text.match(qReStandard);
         if (!m) continue;
         let n = Number(m[1]);
