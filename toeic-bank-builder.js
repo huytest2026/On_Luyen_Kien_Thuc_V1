@@ -26,9 +26,6 @@ function actualFromText(t){
  let m=s.match(/Actual\s*Test\s*0?([0-9]{1,2})\b/i)||s.match(/Actu[a-z0-9|]{0,3}\s*Test\s*[O0]?([0-9]{1,2})\b/i);
  return m?'Actual Test '+String(Number(m[1])).padStart(2,'0'):'';
 }
-function hasStandardNumbers(t) {
-  return /(?:^|[\s|])(?:10[1-9]|1[1-9]\d|200)\b/.test(String(t || ''));
-}
 
 function qNumbers(t){
   if(isAnswerKeyPage(t)) return [];
